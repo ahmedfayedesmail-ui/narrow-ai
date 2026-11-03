@@ -220,6 +220,8 @@ def _verify_sidecar(
     token_path: Path,
     agent_network: AgentNetwork,
     uplink_network: AgentNetwork,
+    uid: int,
+    gid: int,
 ) -> str:
     config = inspected.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
@@ -228,6 +230,8 @@ def _verify_sidecar(
         raise NarrowError("Egress proxy sidecar does not carry exact NARROW execution ownership labels.")
     if not isinstance(config, dict) or config.get("Image") != image:
         raise NarrowError("Egress proxy sidecar image differs from the requested digest-pinned image.")
+    if config.get("User") != f"{uid}:{gid}" or config.get("Entrypoint") not in (["python"], "python"):
+        raise NarrowError("Egress proxy sidecar must run its reviewed Python entrypoint as the non-root host UID/GID.")
     state = inspected.get("State")
     if not isinstance(state, dict) or state.get("Running") is not True:
         raise NarrowError("Egress proxy sidecar is not running.")
@@ -241,6 +245,12 @@ def _verify_sidecar(
         or "ALL" not in (host.get("CapDrop") or [])
         or "no-new-privileges:true" not in (host.get("SecurityOpt") or [])
         or host.get("PortBindings") not in (None, {})
+        or host.get("PublishAllPorts") is True
+        or host.get("PidsLimit") != 64
+        or host.get("Memory") != 256 * 1024 * 1024
+        or host.get("NanoCpus") != 500_000_000
+        or host.get("Devices") not in (None, [])
+        or host.get("Binds") not in (None, [])
         or host.get("NetworkMode") != agent_network.name
     ):
         raise NarrowError("Egress proxy sidecar violates NARROW's no-publish, read-only, least-privilege profile.")
@@ -348,6 +358,8 @@ def provision_execution_egress_proxy(
             token_path=token_path,
             agent_network=agent_network,
             uplink_network=uplink_network,
+            uid=uid,
+            gid=gid,
         )
         if verified_id != created_id:
             raise NarrowError("Egress proxy sidecar identity changed during verification.")
