@@ -6,11 +6,20 @@ Date: 2026-11-03
 
 - Same-task lock contention across separate processes.
 - Independent locks for different task IDs.
-- POSIX inherited descriptor lifetime after the NARROW-side context exits.
+- POSIX inherited descriptor lifetime after the NARROW-side context closes.
 - Rejection of invalid task IDs, symlinked lock directories, and hard-linked lock files.
 
-## Validation status
+## CI evidence
 
-The updated GitHub Actions workflow checks the gzip archive CRC, extracts the release archive, compiles the source, and runs the suite on Python 3.11–3.14.
+- Ubuntu / Python 3.11, 3.12, 3.13, and 3.14: checked-in source and extracted release-archive test suites passed.
+- Windows Server 2025 / Python 3.13: task-lock tests and CLI smoke test passed. Five lock tests passed; the POSIX inherited-descriptor test was intentionally skipped on Windows.
+- Archive gzip integrity, extraction, source compilation, and CLI smoke checks passed in the completed Linux matrix run.
 
-The Windows inherited-handle path, authenticated Claude/Codex end-to-end execution, detached-grandchild behavior, and independent OS-sandbox escape testing remain unvalidated. No claim of machine-level isolation is made.
+## Still unvalidated
+
+- Windows inherited-handle crash lifetime (the Windows run validates lock contention, not lease survival after the parent process exits).
+- Authenticated Claude Code and Codex CLI end-to-end sessions.
+- macOS runtime behavior.
+- Detached-grandchild behavior and independent OS-sandbox escape testing.
+
+NARROW's execution lease is process coordination, not a machine-level sandbox or a correctness guarantee.

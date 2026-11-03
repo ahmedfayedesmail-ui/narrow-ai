@@ -28,7 +28,7 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 - Fail-closed hooks for selected direct file reads/searches/writes.
 - Codex non-interactive exec with `workspace-write` and approval-deny mode.
 
-## v0.4 — Control surfaces and modern provider controls (Alpha implementation)
+## v0.4 — Control surfaces and modern provider controls (implemented; Alpha)
 
 - Read-only loopback Control Center for task overview, scope, checks, acceptance, and sanitized activity.
 - Bounded task portfolio command and JSON output.
@@ -36,17 +36,26 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 - Optional Claude Agent/task tool support, dynamic multi-agent mode, and minimized task/subagent lifecycle telemetry.
 - Provider CLI compatibility diagnostics.
 
-**Remaining exit gate:** run authenticated end-to-end tests on currently supported provider CLIs and models; test hook behavior, subagent completion semantics, interruption/restart recovery, and budget behavior; obtain an independent security review.
+## v0.5 — Task execution coordination (implemented; Alpha)
 
-## v0.5 — Stronger execution isolation (planned)
+- Single-flight OS lock per task across `drive`, direct `run` / `resume`, `verify`, and `finish`.
+- First-level agent and verification processes inherit the lease handle. POSIX regression coverage proves the lock remains held after the NARROW-side descriptor closes while the child still has its inherited descriptor.
+- Lock-path checks reject path traversal, symlinked lock directories, and hard-linked lock files.
+- Public source tree and a versioned source archive are published together.
+- Linux CI validates the source tree and extracted archive on Python 3.11–3.14. Windows Server 2025 / Python 3.13 CI exercises cross-process task-lock contention and CLI startup.
+
+**Remaining exit gate:** validate Windows inherited-handle crash behavior, authenticated Claude/Codex sessions, detached process behavior, macOS, and a real sandbox boundary. The execution lease is coordination, not an OS sandbox.
+
+## v0.6 — Stronger execution isolation (planned)
 
 - Optional disposable Docker/Podman sandbox with a read-only source mount and writable task workspace only.
 - Explicit network allow/deny policy, no host credentials mounted by default, CPU/memory/process/wall-clock limits.
 - Safe dependency-cache strategy and platform-specific containment tests.
+- Clear provider capability matrix: which provider tools execute inside the sandbox and which hooks or direct file operations remain outside it.
 
 **Exit gate:** independent review of container boundaries and tests proving that agent processes cannot modify the original checkout or access denied host paths under the supported configuration.
 
-## v0.6 — Deeper completion intelligence (planned)
+## v0.7 — Deeper completion intelligence (planned)
 
 - Explicit task state machine and dependency graph.
 - Dependency-aware check selection, followed by full required verification before completion.
