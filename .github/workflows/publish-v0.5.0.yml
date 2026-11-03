@@ -1,8 +1,11 @@
 name: Publish NARROW v0.5.0 Alpha
 
-on:
+'on':
+  push:
+    branches: [main]
   issues:
-    types: [opened]
+    types: [opened, reopened]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -11,9 +14,11 @@ permissions:
 jobs:
   publish-v050:
     if: >-
-      github.event.issue.title == 'PUBLISH NARROW V0.5.0 ALPHA' &&
-      github.event.issue.user.login == 'ahmedfayedesmail-ui' &&
-      contains(github.event.issue.body, 'I authorize publication of NARROW v0.5.0 Alpha.')
+      ${{ github.event_name == 'issues' &&
+          (github.event.action == 'opened' || github.event.action == 'reopened') &&
+          github.event.issue.title == 'PUBLISH NARROW V0.5.0 ALPHA' &&
+          github.event.issue.user.login == 'ahmedfayedesmail-ui' &&
+          contains(github.event.issue.body, 'I authorize publication of NARROW v0.5.0 Alpha.') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
