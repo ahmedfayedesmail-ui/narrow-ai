@@ -16,8 +16,7 @@ Configure a Trusted Publisher on each index. These are account-owner steps and c
 ### TestPyPI first
 
 1. Sign in to TestPyPI.
-2. Create a pending publisher for a new project.
-3. Create a **pending publisher** for a new project named `narrow-ai`. Pending publishers do not reserve the name until the first successful upload, so register it immediately before testing the publish.
+2. Create a **pending publisher** for a new project named `narrow-ai`. Pending publishers do not reserve the name until the first successful upload, so register it immediately before testing the publish.
 4. Use these exact GitHub Actions values:
    - Owner: `ahmedfayedesmail-ui`
    - Repository: `narrow-ai`
@@ -46,8 +45,8 @@ Official setup guides:
 3. Choose the existing tag, initially `v0.5.0`.
 4. Choose `testpypi` first and run the workflow.
 5. Confirm the workflow builds both an sdist and wheel, passes `twine check --strict`, installs the wheel in a clean virtual environment, and publishes successfully.
-6. Install from TestPyPI in a clean environment and run `narrow --version`.
-7. Only after that succeeds, repeat with target `pypi`.
+6. The workflow then installs the exact version from the selected index in a fresh virtual environment and runs `narrow --version`. A green run therefore covers the index upload and the package installation smoke test.
+7. Only after the TestPyPI run succeeds, repeat with target `pypi`.
 
 The workflow verifies that the selected tag exactly matches `project.version`, builds from that tag, and separates unprivileged building from the OIDC publishing job. The publishing job receives only artifact-read and OIDC token permissions.
 
