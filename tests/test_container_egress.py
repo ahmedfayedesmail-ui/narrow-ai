@@ -65,6 +65,14 @@ class ContainerEgressTests(unittest.TestCase):
                 "Image": IMAGE,
                 "User": f"{os.getuid()}:{os.getgid()}",
                 "Entrypoint": ["python"],
+                "Cmd": [
+                    "-m", "narrow.egress_proxy",
+                    "--bind", "0.0.0.0",
+                    "--container-private-listener",
+                    "--port", "3128",
+                    "--token-file", "/run/secrets/proxy-token",
+                    "--allow-host", "api.openai.com",
+                ],
                 "Labels": egress_proxy_container_labels(TASK, EXECUTION),
             },
             "State": {"Running": True},
@@ -118,6 +126,7 @@ class ContainerEgressTests(unittest.TestCase):
                 self.token_path = Path(source)
                 return CONTAINER_ID
             if args[:2] == ["network", "connect"]:
+                self.assertEqual(args[2:5], ["--alias", "narrow-egress-proxy", self.agent_network.name])
                 return ""
             if args[:2] == ["container", "inspect"]:
                 return json.dumps([self._sidecar_inspect(self.token_path)])
@@ -145,8 +154,8 @@ class ContainerEgressTests(unittest.TestCase):
         args = self.run_args
         self.assertIsNotNone(args)
         self.assertIn("--network", args)
-        self.assertEqual(args[args.index("--network") + 1], self.agent_network.name)
-        self.assertEqual(args[args.index("--network-alias") + 1], "narrow-egress-proxy")
+        self.assertEqual(args[args.index("--network") + 1], self.uplink_network.name)
+        self.assertEqual(args[args.index("--network-alias") + 1], "narrow-egress-uplink")
         self.assertIn("--read-only", args)
         self.assertEqual(args[args.index("--cap-drop") + 1], "ALL")
         self.assertIn("--container-private-listener", args)
