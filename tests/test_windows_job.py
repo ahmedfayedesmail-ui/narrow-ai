@@ -53,6 +53,27 @@ class WindowsJobTests(unittest.TestCase):
                 if job is not None:
                     job.close()
 
+    def test_popen_pipe_streams_survive_atomic_windows_launch(self):
+        process, job = spawn_process_with_job(
+            [
+                sys.executable,
+                "-c",
+                "import sys; value=sys.stdin.read(); print(value.upper())",
+            ],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+        try:
+            self.assertIsNotNone(job)
+            stdout, _ = process.communicate("narrow-pipe-check", timeout=5)
+            self.assertEqual(process.returncode, 0)
+            self.assertIn("NARROW-PIPE-CHECK", stdout)
+        finally:
+            if job is not None:
+                job.close()
+
     def test_closing_job_terminates_child_and_grandchild(self):
         with tempfile.TemporaryDirectory() as temp:
             grandchild_pid_file = Path(temp) / "grandchild.pid"
