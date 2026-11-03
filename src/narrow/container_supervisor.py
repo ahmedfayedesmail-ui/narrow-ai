@@ -50,8 +50,7 @@ def _docker_environment() -> dict[str, str]:
     """Pass Docker connection settings, never provider or unrelated host secrets."""
     allowed = {
         "PATH", "HOME", "LANG", "LC_ALL",
-        "DOCKER_CONFIG", "DOCKER_HOST", "DOCKER_CONTEXT",
-        "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH",
+        "DOCKER_CONFIG", "DOCKER_HOST",
     }
     return {
         key: value for key, value in os.environ.items()
@@ -122,6 +121,23 @@ def run_container_agent(
         raise NarrowError("Docker supervisor requires the exact Codex credential lease for this execution.")
     secret_path = validate_credential_lease(credential_lease)
     read_policy_manifest(manifest_path, expected_task_id=task_id, expected_execution_id=expected_execution)
+    docker_host = os.environ.get("DOCKER_HOST")
+    if docker_host and not docker_host.startswith("unix://"):
+        raise NarrowError("The first Docker agent profile requires a local Unix-socket Docker daemon.")
+    if os.environ.get("DOCKER_CONTEXT") not in (None, "", "default"):
+        raise NarrowError("The first Docker agent profile refuses non-default or remote Docker contexts.")
+    docker_context = subprocess.run(
+        [command[0], "context", "show"],
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        env=_docker_environment(),
+        shell=False,
+        check=False,
+    )
+    if docker_context.returncode != 0 or docker_context.stdout.strip() != "default":
+        raise NarrowError("The active Docker context is not the supported local default context.")
     expected_network = f"narrow-agent-{task_id[:32]}-{expected_execution.replace('-', '')[:12]}"
     if "--network" not in command or command[command.index("--network") + 1:command.index("--network") + 2] != [expected_network]:
         raise NarrowError("Docker agent command must use the exact task/execution internal network.")
@@ -254,7 +270,7 @@ def run_container_agent(
     if not isinstance(output_limit, int) or isinstance(output_limit, bool) or not 1024 <= output_limit <= 1024 * 1024:
         raise NarrowError("Docker agent output limit must be from 1 KiB to 1 MiB.")
 
-    execution_dir = _private_execution_dir(state_dir, task_id, execution_id)
+    execution_dir = _private_execution_dir(store.state_dir, task_id, expected_execution)
     cidfile = execution_dir / "container.cid"
     if cidfile.exists() or cidfile.is_symlink():
         raise NarrowError("A Docker cidfile already exists for this execution; refusing to overwrite it.")
