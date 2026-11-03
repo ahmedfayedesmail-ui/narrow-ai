@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .container_lifecycle import (\n    agent_container_labels,\n    cleanup_execution_agent_containers,\n    cleanup_execution_agent_networks,\n    list_execution_agent_containers,\n    list_execution_agent_networks,\n)
+from .container_lifecycle import agent_container_labels, cleanup_execution_agent_containers, cleanup_execution_agent_networks, list_execution_agent_containers, list_execution_agent_networks
 from .core import NarrowError, Store, task_workspace
 from .policy_manifest import _validate_execution_id
 from .agent_runtime import normalize_provider_argv, validate_agent_image
