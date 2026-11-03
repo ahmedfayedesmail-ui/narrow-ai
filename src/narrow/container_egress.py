@@ -32,7 +32,7 @@ from .container_lifecycle import (
     list_execution_egress_proxy_containers,
     list_execution_egress_uplink_networks,
 )
-from .core import NarrowError, Store
+from .core import NarrowError, Store, task_workspace
 from .egress_proxy import normalize_allowlist
 from .policy_manifest import _validate_execution_id
 
@@ -263,7 +263,7 @@ def _verify_sidecar(
         or host.get("NanoCpus") != 500_000_000
         or host.get("Devices") not in (None, [])
         or host.get("Binds") not in (None, [])
-        or host.get("NetworkMode") != agent_network.name
+        or host.get("NetworkMode") != uplink_network.name
     ):
         raise NarrowError("Egress proxy sidecar violates NARROW's no-publish, read-only, least-privilege profile.")
     mounts = inspected.get("Mounts")
@@ -330,8 +330,8 @@ def provision_execution_egress_proxy(
         command = [
             "run", "--detach", "--rm",
             "--name", container_name,
-            "--network", agent_network.name,
-            "--network-alias", "narrow-egress-proxy",
+            "--network", uplink_network.name,
+            "--network-alias", "narrow-egress-uplink",
             "--user", f"{uid}:{gid}",
             "--read-only",
             "--cap-drop", "ALL",
@@ -359,7 +359,7 @@ def provision_execution_egress_proxy(
             or any(ch not in _CONTAINER_ID_CHARS for ch in created_id)
         ):
             raise NarrowError("Docker did not return a valid egress sidecar container ID.")
-        _docker(["network", "connect", "--alias", "narrow-egress-uplink", uplink_network.name, created_id], timeout=30)
+        _docker(["network", "connect", "--alias", "narrow-egress-proxy", agent_network.name, created_id], timeout=30)
         inspected = _inspect_container(created_id)
         verified_id = _verify_sidecar(
             inspected,
@@ -445,7 +445,6 @@ def run_codex_container_agent(
     from .container_supervisor import run_container_agent
     from .credential_broker import issue_credential_lease, revoke_credential_lease
     from .policy_manifest import write_policy_manifest
-    from .core import task_workspace
 
     if os.name == "nt" or not hasattr(os, "getuid") or not hasattr(os, "getgid"):
         raise NarrowError("The first container agent profile is available only on POSIX hosts.")
