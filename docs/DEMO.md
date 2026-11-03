@@ -4,7 +4,7 @@ The demo runs NARROW's real CLI and task lifecycle against a tiny temporary Git 
 
 It demonstrates two outcomes:
 
-- `repaired`: attempt 1 fails the configured check; NARROW records the failure, creates a handoff, starts attempt 2, and reaches `READY_FOR_HUMAN_REVIEW`.
+- `repaired`: attempt 1 fails the configured check; NARROW records the failure, creates a handoff, starts attempt 2, and reaches `READY_FOR_REVIEW` (shown in the CLI as ready for human review).
 - `blocked`: both bounded attempts fail; NARROW stops at `NEEDS_REVIEW` instead of claiming success.
 
 ## Requirements
