@@ -6,6 +6,7 @@ supervisor remains authoritative; Docker daemon administrators are trusted.
 """
 from __future__ import annotations
 
+import ipaddress
 import json
 import os
 import secrets
@@ -290,6 +291,14 @@ def _verify_sidecar(
     networks = network_settings.get("Networks") if isinstance(network_settings, dict) else None
     if not isinstance(networks, dict) or set(networks) != {agent_network.name, uplink_network.name}:
         raise NarrowError("Egress proxy sidecar must attach to exactly its internal agent network and dedicated uplink.")
+    uplink = networks[uplink_network.name]
+    gateway = uplink.get("Gateway") if isinstance(uplink, dict) else None
+    try:
+        gateway_address = ipaddress.ip_address(gateway)
+    except (ValueError, TypeError):
+        raise NarrowError("Egress proxy uplink must expose a verified IPv4 default gateway.")
+    if gateway_address.version != 4 or not gateway_address.is_private:
+        raise NarrowError("Egress proxy uplink gateway must be a private IPv4 address.")
     internal = networks[agent_network.name]
     aliases = internal.get("Aliases", []) if isinstance(internal, dict) else []
     if not isinstance(aliases, list) or "narrow-egress-proxy" not in aliases:
@@ -400,6 +409,17 @@ def provision_execution_egress_proxy(
                 time.sleep(0.2)
         if not ready:
             raise NarrowError("Egress proxy sidecar did not become ready within 12 seconds.")
+        # Verify the actual Linux routing table rather than assuming Docker
+        # selected the desired interface from network attachment order.
+        route_probe = (
+            "import pathlib,socket,struct,sys; "
+            "rows=pathlib.Path('/proc/net/route').read_text().splitlines()[1:]; "
+            "routes=[socket.inet_ntoa(struct.pack('<L',int(row.split()[2],16))) "
+            "for row in rows if len(row.split())>=4 and row.split()[1]=='00000000' "
+            "and (int(row.split()[3],16)&1)]; "
+            "sys.exit(0 if routes==[sys.argv[1]] else 41)"
+        )
+        _docker(["exec", created_id, "python", "-c", route_probe, str(gateway_address)], timeout=5)
         return EgressProxyRuntime(
             container_id=created_id,
             container_name=container_name,
