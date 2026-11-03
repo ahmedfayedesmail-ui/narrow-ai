@@ -456,17 +456,18 @@ def _run_container_agent(
                 cleanup_errors.append(f"hook-import:{type(exc).__name__}")
 
         try:
-            cleanup_execution_egress_proxy_containers("docker", task_id, expected_execution)
-        except Exception as exc:
-            cleanup_errors.append(f"egress-proxy-cleanup:{type(exc).__name__}")
-
-        try:
-            remaining = list_execution_agent_containers("docker", task_id, expected_execution)
-            if not remaining:
-                cleanup_execution_egress_uplink_networks("docker", task_id, expected_execution)
-                cleanup_execution_agent_networks("docker", task_id, expected_execution)
+            remaining_agents = list_execution_agent_containers("docker", task_id, expected_execution)
+            if remaining_agents:
+                cleanup_errors.append("egress-proxy-preserved-agent-container-still-exists")
             else:
-                cleanup_errors.append("network-preserved-agent-container-still-exists")
+                cleanup_execution_egress_proxy_containers("docker", task_id, expected_execution)
+                from .container_lifecycle import list_execution_egress_proxy_containers
+                remaining_proxies = list_execution_egress_proxy_containers("docker", task_id, expected_execution)
+                if remaining_proxies:
+                    cleanup_errors.append("egress-uplink-preserved-proxy-container-still-exists")
+                else:
+                    cleanup_execution_egress_uplink_networks("docker", task_id, expected_execution)
+                    cleanup_execution_agent_networks("docker", task_id, expected_execution)
         except Exception as exc:
             cleanup_errors.append(f"network-cleanup:{type(exc).__name__}")
 
