@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+import os
 import re
+import stat
+from pathlib import Path
 
 from .core import NarrowError
+from .container_lifecycle import agent_container_label_args
+from .credential_broker import CredentialLease, validate_credential_lease
+from .policy_manifest import _validate_execution_id, read_policy_manifest
 
 _IMAGE_DIGEST = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$")
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -72,3 +78,144 @@ def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
         raise NarrowError("Codex container command contains an unsupported or unsafe argument.")
     result.append("-")
     return result
+
+
+def _validated_mount_source(value: Path | str, *, directory: bool) -> str:
+    """Return one real absolute POSIX bind source without Docker CSV ambiguity."""
+    source = Path(value)
+    try:
+        metadata = source.lstat()
+        if stat.S_ISLNK(metadata.st_mode):
+            raise NarrowError("Container bind mount source must not be a symbolic link.")
+        if directory and not stat.S_ISDIR(metadata.st_mode):
+            raise NarrowError("Container directory mount source is not a real directory.")
+        if not directory and (
+            not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1
+        ):
+            raise NarrowError("Container file mount source must be a regular unlinked file.")
+        resolved = source.resolve(strict=True)
+    except NarrowError:
+        raise
+    except OSError as exc:
+        raise NarrowError("Container bind mount source is unavailable.") from exc
+    rendered = str(resolved)
+    if (
+        not resolved.is_absolute()
+        or "," in rendered
+        or "\x00" in rendered
+        or "\n" in rendered
+        or "\r" in rendered
+    ):
+        raise NarrowError("Container bind mount source is not safe for Docker's mount syntax.")
+    return rendered
+
+
+def build_docker_agent_command(
+    image: str,
+    provider_command: list[str],
+    *,
+    workspace_path: Path | str,
+    task_home_path: Path | str,
+    policy_manifest_path: Path | str,
+    credential_lease: CredentialLease,
+    task_id: str,
+    execution_id: str,
+    proxy_token: str,
+    uid: int = 1000,
+    gid: int = 1000,
+) -> list[str]:
+    """Build the exact, restricted Docker argv accepted by the host supervisor.
+
+    The internal network and authenticated egress sidecar must already exist.
+    This function only plans the agent process; it does not create or start
+    Docker resources and must not be described as end-to-end egress enforcement.
+    """
+    pinned_image = validate_agent_image(image)
+    if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
+        raise NarrowError("Invalid task ID for Docker agent command.")
+    execution = _validate_execution_id(execution_id)
+    if (
+        not isinstance(credential_lease, CredentialLease)
+        or credential_lease.provider != "codex"
+        or credential_lease.task_id != task_id
+        or credential_lease.execution_id != execution
+    ):
+        raise NarrowError("Docker agent command requires the exact Codex credential lease for this execution.")
+    secret_path = validate_credential_lease(credential_lease)
+    workspace = _validated_mount_source(workspace_path, directory=True)
+    task_home = _validated_mount_source(task_home_path, directory=True)
+    manifest = _validated_mount_source(policy_manifest_path, directory=False)
+    read_policy_manifest(
+        Path(manifest),
+        expected_task_id=task_id,
+        expected_execution_id=execution,
+    )
+    secret = _validated_mount_source(secret_path, directory=False)
+    if os.name != "nt":
+        if stat.S_IMODE(Path(secret).stat().st_mode) != 0o400:
+            raise NarrowError("Docker provider credential mount must have owner-read-only mode 0400.")
+    if (
+        not isinstance(proxy_token, str)
+        or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", proxy_token)
+    ):
+        raise NarrowError("Docker agent requires a bounded URL-safe per-execution egress capability token.")
+    if (
+        not isinstance(uid, int) or isinstance(uid, bool)
+        or not isinstance(gid, int) or isinstance(gid, bool)
+        or not 1 <= uid <= 65535 or not 1 <= gid <= 65535
+    ):
+        raise NarrowError("Docker agent UID and GID must be explicit non-root numeric identities.")
+
+    normalized_provider = normalize_provider_argv("codex", provider_command)
+    network = f"narrow-agent-{task_id[:32]}-{execution.replace('-', '')[:12]}"
+    container_name = f"narrow-agent-{task_id[:24]}-{execution.replace('-', '')[:12]}"
+    proxy_url = f"http://narrow:{proxy_token}@narrow-egress-proxy:3128"
+    spool = "/home/narrow/.local/state/narrow/hook-events.jsonl"
+
+    command = [
+        "docker", "run",
+        "--rm",
+        "--init",
+        "--interactive",
+        "--read-only",
+        "--name", container_name,
+        "--network", network,
+        "--workdir", "/workspace",
+        "--user", f"{uid}:{gid}",
+        "--cap-drop", "ALL",
+        "--security-opt", "no-new-privileges:true",
+        "--pids-limit", "256",
+        "--memory", "2g",
+        "--cpus", "2.0",
+        "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777",
+        "--mount", f"type=bind,source={workspace},target=/workspace",
+        "--mount", f"type=bind,source={task_home},target=/home/narrow",
+        "--mount", f"type=bind,source={manifest},target=/run/narrow/policy.json,readonly",
+        "--mount", f"type=bind,source={secret},target=/run/secrets/provider-api-key,readonly",
+    ]
+    command.extend(agent_container_label_args(task_id, execution))
+    for key, value in (
+        ("HOME", "/home/narrow"),
+        ("LANG", "C.UTF-8"),
+        ("HTTP_PROXY", proxy_url),
+        ("HTTPS_PROXY", proxy_url),
+        ("http_proxy", proxy_url),
+        ("https_proxy", proxy_url),
+        ("NO_PROXY", "localhost,127.0.0.1"),
+        ("no_proxy", "localhost,127.0.0.1"),
+        ("NARROW_POLICY_MANIFEST", "/run/narrow/policy.json"),
+        ("NARROW_TASK_ID", task_id),
+        ("NARROW_EXECUTION_ID", execution),
+        ("NARROW_CONTAINER_EVENT_SPOOL", spool),
+    ):
+        command.extend(["--env", f"{key}={value}"])
+    command.extend([
+        "--entrypoint", "python",
+        pinned_image,
+        "-m", "narrow.agent_entrypoint",
+        "--provider", "codex",
+        "--credential-file", "/run/secrets/provider-api-key",
+        "--",
+        *normalized_provider,
+    ])
+    return command
