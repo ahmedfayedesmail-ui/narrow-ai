@@ -11,6 +11,7 @@ from narrow.core import NarrowError, Store
 from narrow.credential_broker import (
     issue_credential_lease,
     revoke_credential_lease,
+    revoke_execution_credential_files,
     validate_credential_lease,
 )
 
@@ -120,6 +121,26 @@ class CredentialBrokerTests(unittest.TestCase):
         revoke_credential_lease(lease)
         revoke_credential_lease(lease)
         self.assertFalse(lease.path.exists())
+
+
+    def test_recovery_revokes_only_exact_execution_leases(self):
+        lease = issue_credential_lease(
+            self.store, "claude", TASK, EXECUTION, environment=self.environment
+        )
+        removed = revoke_execution_credential_files(self.store, TASK, EXECUTION)
+        self.assertEqual(removed, 1)
+        self.assertFalse(lease.path.exists())
+
+    def test_recovery_refuses_unexpected_credentials_directory_entries(self):
+        lease = issue_credential_lease(
+            self.store, "claude", TASK, EXECUTION, environment=self.environment
+        )
+        unexpected = lease.path.parent / "keep-this-file"
+        unexpected.write_text("not a lease", encoding="utf-8")
+        with self.assertRaisesRegex(NarrowError, "unexpected entry"):
+            revoke_execution_credential_files(self.store, TASK, EXECUTION)
+        self.assertTrue(lease.path.exists())
+        revoke_credential_lease(lease)
 
 
 if __name__ == "__main__":
