@@ -283,7 +283,10 @@ def _drive_task_unlocked(
                 task_id,
                 provider,
                 prompt_path,
-                resume=attempt > 1,
+                # Container executions intentionally get a fresh, isolated
+                # CODEX_HOME per attempt. NARROW's handoff carries repair
+                # context; do not share writable provider state across runs.
+                resume=attempt > 1 and not container_agent,
                 model=model,
                 max_turns=max_turns,
                 max_budget_usd=max_budget_usd,
