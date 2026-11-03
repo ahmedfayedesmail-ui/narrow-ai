@@ -152,8 +152,12 @@ def build_docker_agent_command(
     )
     secret = _validated_mount_source(secret_path, directory=False)
     if os.name != "nt":
-        if stat.S_IMODE(Path(secret).stat().st_mode) != 0o400:
+        secret_metadata = Path(secret).stat()
+        home_metadata = Path(task_home).stat()
+        if stat.S_IMODE(secret_metadata.st_mode) != 0o400:
             raise NarrowError("Docker provider credential mount must have owner-read-only mode 0400.")
+        if secret_metadata.st_uid != uid or home_metadata.st_uid != uid:
+            raise NarrowError("Docker agent UID must own the private credential and task-home mounts.")
     if (
         not isinstance(proxy_token, str)
         or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", proxy_token)
