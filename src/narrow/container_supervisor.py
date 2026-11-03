@@ -26,6 +26,7 @@ from .agent_runtime import normalize_provider_argv, validate_agent_image
 from .credential_broker import CredentialLease, validate_credential_lease, revoke_credential_lease
 from .policy_manifest import read_policy_manifest
 from .container_hooks import import_container_hook_events
+from .container_egress import remove_execution_proxy_token_file
 
 _TASK_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
@@ -468,6 +469,7 @@ def _run_container_agent(
                 else:
                     cleanup_execution_egress_uplink_networks("docker", task_id, expected_execution)
                     cleanup_execution_agent_networks("docker", task_id, expected_execution)
+                    remove_execution_proxy_token_file(store, task_id, expected_execution)
         except Exception as exc:
             cleanup_errors.append(f"network-cleanup:{type(exc).__name__}")
 
