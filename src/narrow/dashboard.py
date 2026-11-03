@@ -6,9 +6,11 @@ It has no mutation endpoints and refuses non-loopback clients and Host headers.
 """
 from __future__ import annotations
 
+import hmac
 import ipaddress
 import json
 import re
+import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -85,6 +87,12 @@ _CSS = r"""
 
 _JS = r"""
 (() => {
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const fragmentToken = fragment.get('token');
+  if (fragmentToken) {
+    sessionStorage.setItem('narrow.dashboard.token', fragmentToken);
+    history.replaceState(null, '', location.pathname + location.search);
+  }
   const $ = (id) => document.getElementById(id);
   let selected = null;
   let refreshing = false;
@@ -95,7 +103,8 @@ _JS = r"""
   const create = (tag, cls, text) => { const el = document.createElement(tag); if (cls) el.className = cls; if (text !== undefined) el.textContent = safe(text); return el; };
   const timeText = (value) => { try { return new Date(value).toLocaleString(); } catch { return safe(value); } };
   async function get(url) {
-    const response = await fetch(url, {cache:'no-store', credentials:'same-origin'});
+    const token = sessionStorage.getItem('narrow.dashboard.token') || '';
+    const response = await fetch(url, {cache:'no-store', credentials:'same-origin', headers:{'X-NARROW-Token':token}});
     if (!response.ok) throw new Error(`Dashboard request failed (${response.status})`);
     return response.json();
   }
@@ -250,6 +259,7 @@ class DashboardServer(ThreadingHTTPServer):
 
     def __init__(self, store: Store, port: int):
         self.store = store
+        self.api_token = secrets.token_urlsafe(32)
         super().__init__(("127.0.0.1", port), DashboardHandler)
 
 
@@ -280,6 +290,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
         except (ValueError, OSError):
             return False
 
+    def _authorized_api_request(self) -> bool:
+        if not self._allowed_client():
+            return False
+        supplied = self.headers.get("X-NARROW-Token", "")
+        return bool(supplied) and hmac.compare_digest(supplied, self.server.api_token)
+
     def _send(self, body: bytes, content_type: str, status: int = 200) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
@@ -304,6 +320,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             self._send(b"Localhost access only.\n", "text/plain; charset=utf-8", 403)
             return
         path = urlsplit(self.path).path
+        if path.startswith("/api/") and not self._authorized_api_request():
+            self._json({"error": "unauthorized"}, 403)
+            return
         if path == "/":
             self._send(_HTML.encode("utf-8"), "text/html; charset=utf-8")
             return
@@ -341,12 +360,21 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self._json({"error": "not_found"}, 404)
 
     def do_POST(self) -> None:  # noqa: N802
+        if not self._authorized_api_request():
+            self._send(b"Unauthorized.\n", "text/plain; charset=utf-8", 403)
+            return
         self._send(b"Read-only dashboard.\n", "text/plain; charset=utf-8", 405)
 
     def do_PUT(self) -> None:  # noqa: N802
+        if not self._authorized_api_request():
+            self._send(b"Unauthorized.\n", "text/plain; charset=utf-8", 403)
+            return
         self._send(b"Read-only dashboard.\n", "text/plain; charset=utf-8", 405)
 
     def do_DELETE(self) -> None:  # noqa: N802
+        if not self._authorized_api_request():
+            self._send(b"Unauthorized.\n", "text/plain; charset=utf-8", 403)
+            return
         self._send(b"Read-only dashboard.\n", "text/plain; charset=utf-8", 405)
 
 
@@ -357,10 +385,11 @@ def run_dashboard(store: Store, port: int = 8765, *, open_browser: bool = False)
         server = DashboardServer(store, port)
     except OSError as exc:
         raise NarrowError(f"Could not start the local dashboard on 127.0.0.1:{port}: {exc}") from exc
-    url = f"http://127.0.0.1:{port}/"
-    print("NARROW Control Center — read-only local dashboard")
+    url = f"http://127.0.0.1:{port}/#token={server.api_token}"
+    print("NARROW Control Center — authenticated, read-only local dashboard")
     print(f"Open: {url}")
-    print("Bound to 127.0.0.1 only. No external network listener or mutation endpoint is available.")
+    print("Bound to 127.0.0.1 only. API access requires the one-time token in this browser session.")
+    print("Mutation endpoints remain disabled; the token is not permission to execute commands.")
     print("Press Ctrl+C to stop the dashboard.\n")
     if open_browser:
         try:
