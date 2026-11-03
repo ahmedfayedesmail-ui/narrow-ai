@@ -92,6 +92,11 @@ def _spool_event(manifest: dict[str, Any], event_type: str, payload: dict[str, A
             return False
         parent = spool.parent
         relative_parent = parent.relative_to(home)
+        if any(part in {"", ".", ".."} for part in relative_parent.parts):
+            return False
+        resolved_parent = parent.resolve(strict=False)
+        if not resolved_parent.is_relative_to(home):
+            return False
         cursor = home
         for part in relative_parent.parts:
             cursor = cursor / part
