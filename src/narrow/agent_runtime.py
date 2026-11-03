@@ -11,7 +11,9 @@ from .credential_broker import CredentialLease, validate_credential_lease
 from .policy_manifest import _validate_execution_id, read_policy_manifest
 from .egress_proxy import read_token_file
 
-_IMAGE_DIGEST = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$")
+_IMAGE_DIGEST = re.compile(
+    r"^[A-Za-z0-9][A-Za-z0-9._-]*(?::[0-9]{1,5})?(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*@sha256:[0-9a-f]{64}$"
+)
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 _MODEL_EFFORT = re.compile(r'^model_reasoning_effort="(?:low|medium|high|xhigh)"$')
 
