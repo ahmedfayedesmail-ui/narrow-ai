@@ -98,6 +98,29 @@ The container implementation must instead:
 6. Ensure subagents, shell tools, and provider helper processes remain inside
    the same container boundary.
 
+## Provider credential lease primitive (pre-launch integration)
+
+The preparatory `narrow.credential_broker` module can copy one explicitly
+selected `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` from the current host process
+environment into a short-lived, task/execution-specific file under the private
+NARROW runtime directory. It does not inspect Claude/Codex global login
+profiles, enumerate other environment variables, or persist the key in the
+task journal. On POSIX, the directory is owner-only (0700), the file is
+owner-read-only (0400), and a lease validation checks its expiry, file type,
+link count, size, and SHA-256 digest. Revocation deletes only that exact file.
+The implementation currently fails closed on Windows until native restricted
+DACL enforcement is available.
+
+This is **not** a way to hide a provider key from the agent. If the future
+launcher mounts the credential file into the agent container, the provider CLI,
+agent, and tools running with that container identity can read it. The lease
+reduces exposure of the host's global provider profile and unrelated secrets;
+it does not protect a key from a malicious model/tool. Prefer provider-issued
+short-lived, narrowly scoped credentials. The TTL is enforced when the
+launcher validates the lease; the launcher must revoke it in a `finally`
+path, and crash-recovery cleanup must remove expired lease files. This helper
+is not yet wired into an agent launcher or an automated revocation supervisor.
+
 A Docker CLI process being assigned to a Windows Job Object does not prove
 that a daemon-managed container will be terminated on host crash. Container
 lifecycle needs a separately supervised container ID, explicit cleanup, and
