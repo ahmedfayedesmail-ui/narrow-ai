@@ -42,6 +42,7 @@ from .providers import provider_status
 from .discovery import discover_project, propose_contract
 from .dashboard import run_dashboard
 from .locks import task_execution_lock
+from .sandbox import prepare_sandbox_command
 
 
 def _find_root() -> Path:
@@ -461,6 +462,9 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
         print("Cancelled. No verification command was run.")
         return 1
     workspace = task_workspace(task)
+    # Validate the configured container engine and local image before asking
+    # the user to approve this check.
+    prepare_sandbox_command(command, workspace, sandbox_config)
     unsafe_before = unsafe_workspace_links(workspace)
     if unsafe_before:
         raise NarrowError("NARROW refuses to run verification while unsafe symlinks or hard-linked files exist: " + ", ".join(unsafe_before[:20]))
