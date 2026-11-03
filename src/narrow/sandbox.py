@@ -38,7 +38,7 @@ def _validated_options(config: dict[str, Any]) -> tuple[str, str, str, str, int,
     pids = config.get("pids_limit", 256)
     if not isinstance(pids, int) or isinstance(pids, bool) or not 32 <= pids <= 8192:
         raise NarrowError("verification_sandbox.pids_limit must be between 32 and 8192.")
-    read_only = config.get("workspace_read_only", False)
+    read_only = config.get("workspace_read_only", True)
     if not isinstance(read_only, bool):
         raise NarrowError("verification_sandbox.workspace_read_only must be true or false.")
     return mode, image, memory, cpus, pids, read_only
@@ -83,7 +83,7 @@ def prepare_sandbox_command(command: list[str], cwd: Path, config: dict[str, Any
         "--pids-limit", str(pids), "--memory", memory, "--cpus", cpus,
         "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=256m",
         "--mount", mount_spec,
-        "--workdir", "/workspace", "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", "HOME=/tmp",
+        "--workdir", "/workspace", "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", "HOME=/tmp", "--env", "TMPDIR=/tmp", "--env", "XDG_CACHE_HOME=/tmp/.cache",
     ]
     if os.name != "nt" and hasattr(os, "getuid") and hasattr(os, "getgid"):
         argv.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
