@@ -549,17 +549,27 @@ def run_codex_container_agent(
             output_limit=output_limit,
         )
     finally:
+        cleanup_errors: list[str] = []
         if not supervisor_started:
             try:
                 revoke_credential_lease(lease)
-            finally:
-                try:
-                    cleanup_execution_egress_proxy_containers("docker", task_id, execution)
-                    if not list_execution_egress_proxy_containers("docker", task_id, execution):
-                        cleanup_execution_egress_uplink_networks("docker", task_id, execution)
-                        cleanup_execution_agent_networks("docker", task_id, execution)
-                        remove_execution_proxy_token_file(store, task_id, execution)
-                except Exception:
-                    # Preserve the original launch error. Exact recovery remains
-                    # available through narrow recover-agent for this execution.
-                    pass
+            except Exception as exc:
+                cleanup_errors.append("credential-revocation:" + type(exc).__name__)
+        # The public supervisor also performs ordered cleanup, but its
+        # preflight can reject before its subprocess/finalizer is entered.
+        # Reconcile here as a second exact-identity guard for every exit path.
+        try:
+            remaining_agents = list_execution_agent_containers("docker", task_id, execution)
+            if not remaining_agents:
+                cleanup_execution_egress_proxy_containers("docker", task_id, execution)
+                remaining_proxies = list_execution_egress_proxy_containers("docker", task_id, execution)
+                if not remaining_proxies:
+                    cleanup_execution_egress_uplink_networks("docker", task_id, execution)
+                    cleanup_execution_agent_networks("docker", task_id, execution)
+                    remove_execution_proxy_token_file(store, task_id, execution)
+        except Exception as exc:
+            cleanup_errors.append("execution-resource-reconciliation:" + type(exc).__name__)
+        if cleanup_errors:
+            raise NarrowError(
+                "Codex container execution ended with incomplete cleanup: " + ", ".join(cleanup_errors)
+            )
