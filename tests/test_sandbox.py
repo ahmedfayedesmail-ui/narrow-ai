@@ -45,5 +45,30 @@ class SandboxTests(unittest.TestCase):
             with self.assertRaisesRegex(NarrowError, "not found on PATH"):
                 prepare_sandbox_command(["pytest"], Path(temp), {"mode": "auto", "image": "narrow-checks:local"})
 
+    @patch("narrow.sandbox.subprocess.run")
+    @patch("narrow.sandbox.shutil.which", return_value="/usr/bin/docker")
+    def test_task_scoped_dependency_caches_are_mounted_without_home_access(self, _which, run):
+        run.return_value.returncode = 0
+        with tempfile.TemporaryDirectory() as temp:
+            temp_path = Path(temp)
+            workspace = temp_path / "workspace"
+            workspace.mkdir()
+            plan = prepare_sandbox_command(
+                ["python", "-m", "pytest"],
+                workspace,
+                {"mode": "docker", "image": "narrow-checks:local",
+                 "dependency_caches": ["pip", "npm"]},
+                cache_root=temp_path / "narrow-cache",
+                cache_scope="task_123",
+            )
+        mounts = [plan.command[i + 1] for i, part in enumerate(plan.command[:-1]) if part == "--mount"]
+        self.assertTrue(any("dst=/narrow-cache/pip,rw" in mount for mount in mounts))
+        self.assertTrue(any("dst=/narrow-cache/npm,rw" in mount for mount in mounts))
+        self.assertIn("PIP_CACHE_DIR=/narrow-cache/pip", plan.command)
+        self.assertIn("npm_config_cache=/narrow-cache/npm", plan.command)
+        self.assertNotIn(str(Path.home()), " ".join(plan.command))
+
+
+
 if __name__ == "__main__":
     unittest.main()
