@@ -38,7 +38,7 @@ from .core import (
 from .supervisor import run_agent, run_verification_command
 from .drive import drive_task
 from .hooks import run_hook_cli
-from .providers import provider_status, get_adapter
+from .providers import provider_status
 from .discovery import discover_project, propose_contract
 from .dashboard import run_dashboard
 from .locks import task_execution_lock
@@ -168,7 +168,7 @@ def cmd_providers(args: argparse.Namespace) -> int:
     if args.json:
         print(json.dumps({"schema": "narrow.providers.v1", "providers": items}, ensure_ascii=False, indent=2))
         return 0
-    print("NARROW native provider adapters (no credentials are read):")
+    print("NARROW provider adapters (built-in and installed plugins; no credentials are read):")
     for item in items:
         state = "AVAILABLE" if item["available"] else "NOT FOUND"
         path = f" — {item['path']}" if item["path"] else ""
@@ -411,6 +411,10 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     command = spec.get("command")
     if not isinstance(command, list) or not command or not all(isinstance(part, str) and part and "\x00" not in part for part in command):
         raise NarrowError(f"Check '{args.check}' must define a non-empty argv array. Shell strings are not supported.")
+    if sandbox_config.get("mode", "off") == "off":
+        print("Verification will run with your user permissions inside the isolated task worktree.")
+    else:
+        print("Verification will run in the configured " + str(sandbox_config.get("mode")) + " container profile.")
     if not _confirm(command, args.yes):
         print("Cancelled. No verification command was run.")
         return 1
