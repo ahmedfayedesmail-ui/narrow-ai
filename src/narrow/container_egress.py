@@ -393,3 +393,116 @@ def provision_execution_egress_proxy(
         except Exception:
             pass
         raise
+
+
+def run_codex_container_agent(
+    store: Store,
+    task_id: str,
+    execution_id: str,
+    provider_command: list[str],
+    *,
+    agent_image: str,
+    proxy_image: str,
+    allowed_hosts: list[str] | tuple[str, ...],
+    stdin_text: str,
+    event_callback: Any = None,
+    timeout_seconds: int = 3600,
+    output_limit: int = 64 * 1024,
+) -> tuple[int, str]:
+    """Run one Codex agent through the internal-network-only proxy topology.
+
+    The provider API key must be explicitly present as OPENAI_API_KEY in the
+    host environment. The Codex image must contain the CLI and the NARROW
+    in-container entrypoint; the proxy image must contain narrow.egress_proxy.
+    This is POSIX/local-Docker only and remains opt-in.
+    """
+    from .agent_runtime import build_docker_agent_command
+    from .container_hooks import import_container_hook_events
+    from .container_recovery import _TASK_ID
+    from .container_supervisor import run_container_agent
+    from .credential_broker import issue_credential_lease, revoke_credential_lease
+    from .policy_manifest import write_policy_manifest
+    from .core import task_workspace
+
+    if os.name == "nt" or not hasattr(os, "getuid") or not hasattr(os, "getgid"):
+        raise NarrowError("The first container agent profile is available only on POSIX hosts.")
+    if not isinstance(stdin_text, str) or "\x00" in stdin_text or len(stdin_text.encode("utf-8")) > 2 * 1024 * 1024:
+        raise NarrowError("Container agent prompt must be bounded UTF-8 text.")
+    if not isinstance(provider_command, list) or not provider_command:
+        raise NarrowError("Container agent requires the reviewed Codex provider command.")
+    if not isinstance(task_id, str) or not _TASK_ID_CHARS.issuperset(task_id):
+        raise NarrowError("Invalid task ID for container agent execution.")
+    execution = _validate_execution_id(execution_id)
+    validate_agent_image(agent_image)
+    validate_agent_image(proxy_image)
+
+    task = store.get_task(task_id)
+    execution_root = _execution_root(store, task_id, execution)
+    task_home = execution_root / "home"
+    try:
+        task_home.mkdir(mode=0o700, exist_ok=True)
+        metadata = task_home.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise NarrowError("Container task home is not a real directory.")
+        os.chmod(task_home, 0o700)
+    except NarrowError:
+        raise
+    except OSError as exc:
+        raise NarrowError("Could not prepare private container task home.") from exc
+
+    manifest = write_policy_manifest(store, task_id, execution)
+    lease = issue_credential_lease(store, "codex", task_id, execution)
+    supervisor_started = False
+    proxy_runtime: EgressProxyRuntime | None = None
+    try:
+        proxy_runtime = provision_execution_egress_proxy(
+            store, task_id, execution, proxy_image, allowed_hosts
+        )
+        command = build_docker_agent_command(
+            agent_image,
+            provider_command,
+            workspace_path=task_workspace(task),
+            task_home_path=task_home,
+            policy_manifest_path=manifest.path,
+            credential_lease=lease,
+            task_id=task_id,
+            execution_id=execution,
+            proxy_token=proxy_runtime.token,
+            uid=os.getuid(),
+            gid=os.getgid(),
+        )
+        store.add_event(task_id, "CONTAINER_AGENT_LAUNCH_AUTHORIZED", {
+            "execution_id": execution,
+            "provider": "codex",
+            "agent_image": agent_image,
+            "proxy_image": proxy_image,
+            "allowed_hosts": list(proxy_runtime.allowed_hosts),
+            "network_model": "internal-agent-network-plus-proxy-only-uplink",
+        })
+        supervisor_started = True
+        return run_container_agent(
+            command,
+            store=store,
+            credential_lease=lease,
+            task_id=task_id,
+            execution_id=execution,
+            stdin_text=stdin_text,
+            event_callback=event_callback,
+            timeout_seconds=timeout_seconds,
+            output_limit=output_limit,
+        )
+    finally:
+        if not supervisor_started:
+            try:
+                revoke_credential_lease(lease)
+            finally:
+                try:
+                    cleanup_execution_egress_proxy_containers("docker", task_id, execution)
+                    if not list_execution_egress_proxy_containers("docker", task_id, execution):
+                        cleanup_execution_egress_uplink_networks("docker", task_id, execution)
+                        cleanup_execution_agent_networks("docker", task_id, execution)
+                        remove_execution_proxy_token_file(store, task_id, execution)
+                except Exception:
+                    # Preserve the original launch error. Exact recovery remains
+                    # available through narrow recover-agent for this execution.
+                    pass
