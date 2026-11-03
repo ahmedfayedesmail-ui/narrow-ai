@@ -34,12 +34,16 @@ def _validate_command(command: Any, label: str) -> list[str]:
     return command
 
 
-def _confirm_auto_checks(checks: dict[str, Any], yes: bool) -> bool:
+def _confirm_auto_checks(checks: dict[str, Any], yes: bool, sandbox_config: dict[str, Any] | None = None) -> bool:
     print("NARROW will automatically execute these configured checks after each agent attempt:")
     for name, spec in checks.items():
         command = _validate_command(spec.get("command"), f"Check '{name}'")
         print(f"  {name}: {' '.join(command)}")
-    print("Checks run inside the isolated copy with your user permissions. Review every command before approving.")
+    mode = (sandbox_config or {}).get("mode", "off")
+    if mode == "off":
+        print("Checks run inside the isolated copy with your user permissions. Review every command before approving.")
+    else:
+        print(f"Checks will run through the optional {mode} container profile. Review the image and commands before approving.")
     if yes:
         return True
     try:
@@ -84,7 +88,7 @@ def _write_prompt(workspace: Path, task: dict[str, Any], attempt: int, handoff: 
     return write_internal_file(workspace, "NARROW_PROMPT.md", "\n".join(lines))
 
 
-def _run_one_check(store: Store, task: dict[str, Any], name: str, spec: dict[str, Any], _lock_fd: int | None = None) -> bool:
+def _run_one_check(store: Store, task: dict[str, Any], name: str, spec: dict[str, Any], _lock_fd: int | None = None, sandbox_config: dict[str, Any] | None = None) -> bool:
     command = _validate_command(spec.get("command"), f"Check '{name}'")
     try:
         raw_timeout = spec.get("timeout_seconds", 300)
@@ -102,7 +106,8 @@ def _run_one_check(store: Store, task: dict[str, Any], name: str, spec: dict[str
     env["PYTHONDONTWRITEBYTECODE"] = "1"
     started = time.monotonic()
     exit_code, output = run_verification_command(
-        command, cwd=workspace, env=env, timeout=timeout, _lock_fd=_lock_fd
+        command, cwd=workspace, env=env, timeout=timeout, _lock_fd=_lock_fd,
+        sandbox=sandbox_config,
     )
 
     after = snapshot_hash(workspace)
@@ -195,6 +200,9 @@ def _drive_task_unlocked(
         raise NarrowError("The 'checks' entry in .narrow/config.json must be an object.")
     if not checks:
         raise NarrowError("No verification checks are configured. NARROW drive requires at least one check to decide whether a repair cycle succeeded.")
+    sandbox_config = config.get("verification_sandbox", {"mode": "off"})
+    if not isinstance(sandbox_config, dict):
+        raise NarrowError("verification_sandbox must be a JSON object in .narrow/config.json.")
     for name, spec in checks.items():
         if not isinstance(spec, dict):
             raise NarrowError(f"Check '{name}' configuration must be an object.")
@@ -212,7 +220,7 @@ def _drive_task_unlocked(
     attempts = max_attempts if max_attempts is not None else configured_attempts
     if attempts < 1 or attempts > 5:
         raise NarrowError("max_attempts must be between 1 and 5. NARROW keeps repair loops strictly bounded.")
-    if not _confirm_auto_checks(checks, yes_checks):
+    if not _confirm_auto_checks(checks, yes_checks, sandbox_config):
         print("Cancelled. No agent or verification command was run.")
         return 1
 
@@ -274,7 +282,7 @@ def _drive_task_unlocked(
         passed = True
         for name, spec in checks.items():
             try:
-                check_passed = _run_one_check(store, task, name, spec, _lock_fd=_lock_fd)
+                check_passed = _run_one_check(store, task, name, spec, _lock_fd=_lock_fd, sandbox_config=sandbox_config)
             except NarrowError as exc:
                 store.update_status(task_id, "NEEDS_REVIEW")
                 store.add_event(task_id, "DRIVE_STOPPED", {"reason": str(exc), "attempt": attempt})
