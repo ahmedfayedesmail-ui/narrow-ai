@@ -121,6 +121,16 @@ launcher validates the lease; the launcher must revoke it in a `finally`
 path, and crash-recovery cleanup must remove expired lease files. This helper
 is not yet wired into an agent launcher or an automated revocation supervisor.
 
+A minimal in-container `narrow.agent_entrypoint` now consumes a single
+read-only credential mount. It accepts only the exact `claude` or `codex`
+executable name (no arbitrary executable path), removes both provider API-key
+variables inherited from its parent, and forwards only a small runtime
+environment allowlist plus the one selected provider key. The credential file
+must be a regular, unlinked, bounded file with POSIX mode 0400. This entrypoint
+is a building block; the host launcher still needs to mount the manifest,
+credential, worktree, and task-scoped home, invoke this entrypoint, supervise
+the container process, and import hook telemetry after exit.
+
 A Docker CLI process being assigned to a Windows Job Object does not prove
 that a daemon-managed container will be terminated on host crash. Container
 lifecycle needs a separately supervised container ID, explicit cleanup, and
