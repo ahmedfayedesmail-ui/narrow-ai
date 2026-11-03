@@ -96,6 +96,11 @@ class CoreTests(unittest.TestCase):
         self.assertTrue((workspace / "NARROW_TASK.md").exists())
 
 
+    def test_init_keeps_local_narrow_state_out_of_git_status(self):
+        probe = self.root / ".narrow" / "ignore-regression-probe"
+        probe.write_text("local metadata\n", encoding="utf-8")
+        self.assertEqual(git(self.root, "status", "--porcelain=v1", "--untracked-files=all"), "")
+
     def test_init_refuses_to_overwrite_tracked_reserved_path(self):
         other = make_repo(self.temp_path / "other")
         (other / "NARROW_TASK.md").write_text("User-owned content\n", encoding="utf-8")
@@ -163,7 +168,7 @@ class CoreTests(unittest.TestCase):
         other = make_repo(self.temp_path / "redirect-target")
         with patch.dict(os.environ, {"GIT_DIR": str(other / ".git")}):
             from narrow.core import run_git
-            self.assertEqual(run_git(self.root, ["rev-parse", "--show-toplevel"]), str(self.root))
+            self.assertEqual(Path(run_git(self.root, ["rev-parse", "--show-toplevel"])).resolve(), self.root.resolve())
 
     def test_internal_git_commands_do_not_run_global_fsmonitor_hook(self):
         other = make_repo(self.temp_path / "fsmonitor-test")

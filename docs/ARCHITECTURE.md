@@ -1,4 +1,4 @@
-# NARROW Architecture (v0.4)
+# NARROW Architecture (v0.5.0 Alpha)
 
 ## Product model
 
@@ -124,3 +124,16 @@ Before an agent, bounded drive loop, verification command, or completion check r
 The lock handle is passed to the first-level agent/check process. POSIX file locks are tied to the inherited open-file description and therefore remain held while that child keeps the descriptor open, including when the supervising NARROW process exits unexpectedly. Windows uses an inheritable file handle and still needs dedicated crash-recovery validation.
 
 This protects against concurrent NARROW operations; it does not sandbox the child, prevent deliberate descriptor closure, or guarantee containment of detached grandchildren.
+
+
+## Execution profiles and responsibility boundary
+
+The adapter layer has three deliberately different trust profiles:
+
+- Native Claude Code: NARROW configures the provider's required fail-closed shell sandbox, empty-by-default network allowlist, empty MCP configuration, and PreToolUse gates for selected direct file/search tools. The shell sandbox does not contain every provider tool/helper, and the hooks do not claim coverage of every possible action.
+- Native Codex CLI: NARROW requests the provider's `workspace-write` sandbox and non-interactive no-auto-approval behavior. The installed Codex CLI owns the underlying enforcement.
+- Generic command adapter and direct `run`/`resume`: NARROW supplies a task copy, monitor, and completion gate but does not create an OS sandbox. Processes retain the user's OS permissions unless the user independently wraps them in one.
+
+Configured verification commands are separate child processes and also retain user permissions. They use argv arrays, timeouts, bounded output capture, and before/after snapshot checks, but these are not OS containment.
+
+Human acceptance is a CLI-recorded assertion after manual inspection of the isolated diff and all untracked files. The finish gate checks the evidence and snapshot; it cannot verify that a person actually read the change. See [HUMAN_REVIEW.md](HUMAN_REVIEW.md) and [THREAT_MODEL.md](THREAT_MODEL.md).

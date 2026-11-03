@@ -1,6 +1,6 @@
 # Safety Model
 
-NARROW's primary product promise is **not making a user's work less safe**. The default behavior should be conservative, observable, reversible, and honest about uncertainty.
+NARROW's primary safety objective is to reduce accidental damage and make uncertainty visible. The design should be conservative, observable, reversible, and honest about what it cannot enforce.
 
 ## Protected assets
 
@@ -92,3 +92,25 @@ These protections add an OS-enforced shell boundary for Claude on supported macO
 - Claude Agent/task tools are opt-in and disabled by default. Enabling them does not add a separate sandbox; child agents share task workspace permissions.
 - Effort overrides are validated enum values passed through native provider CLI flags/config. Provider model/account support is authoritative; NARROW does not invent compatibility.
 - Provider version probes invoke only `--version` when explicitly requested.
+
+
+## Execution-profile boundary (v0.5.0)
+
+The word "isolated" in NARROW means a separate Git working copy. It does not mean a process-level permission boundary.
+
+- `narrow drive --provider claude` uses NARROW's native Claude profile: required fail-closed shell sandbox settings, an empty-by-default network allowlist, an empty MCP config for that profile, and fail-closed PreToolUse gates for selected direct file/search tools. Claude's shell sandbox does not cover every provider tool/helper; the hooks cover only the documented tool families.
+- `narrow drive --provider codex` selects the Codex CLI's `workspace-write` sandbox and non-interactive no-auto-approval mode. Its exact boundary remains provider-version/configuration dependent.
+- `narrow drive --agent NAME` is a generic command adapter. NARROW does not install an OS sandbox for it. `narrow run` and `narrow resume` are also direct command wrappers and do not configure the native provider profile.
+- Every configured verification command runs as an executable with the invoking user's permissions. It is shown for confirmation by default; `--yes` and `--yes-checks` intentionally skip that prompt. Timeouts and snapshot detection are not a sandbox.
+
+For untrusted code, use a disposable VM/container with restricted mounts, no host credentials, limited network, CPU/memory/process limits, and a low-privilege user. NARROW v0.5.0 does not create that outer boundary.
+
+## Explicit human-review procedure
+
+1. Run `narrow status --task <id>` and `narrow inspect --task <id>` from the original checkout.
+2. Use the displayed isolated workspace path to review `git status --short --untracked-files=all`, `git diff --check`, the full tracked diff, and every untracked file.
+3. Run reviewed configured checks against the current snapshot.
+4. Record each criterion with `narrow accept --task <id> --criterion N --evidence "..."`.
+5. Run `narrow finish --task <id>`. Any later edit makes previous check/acceptance evidence stale.
+
+This procedure is documented in [HUMAN_REVIEW.md](HUMAN_REVIEW.md). The command records the user's assertion; it cannot prove that a human genuinely inspected the diff. NARROW never merges or integrates the task automatically.

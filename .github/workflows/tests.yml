@@ -10,7 +10,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -20,21 +20,35 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Validate release archive
-        run: gzip -t narrow-v0.5.0.tar.gz && tar -tzf narrow-v0.5.0.tar.gz >/dev/null
+      - name: Build source archive from the exact checkout
+        run: |
+          tar -czf "$RUNNER_TEMP/narrow-source.tar.gz" \
+            --exclude=.git \
+            --exclude=narrow-v0.1.0.tar.gz \
+            --exclude=narrow-v0.1.0.tar.gz.sha256 \
+            --exclude=narrow-v0.4.0.tar.gz \
+            --exclude=narrow-v0.4.0.tar.gz.sha256 \
+            -C "$GITHUB_WORKSPACE" .
+          gzip -t "$RUNNER_TEMP/narrow-source.tar.gz"
+          mkdir -p "$RUNNER_TEMP/narrow-release"
+          tar -xzf "$RUNNER_TEMP/narrow-source.tar.gz" -C "$RUNNER_TEMP/narrow-release"
+          test -f "$RUNNER_TEMP/narrow-release/src/narrow/locks.py"
       - name: Compile checked-in source
-        run: python -m compileall -q src tests
+        run: python -m compileall -q src tests examples
       - name: Test checked-in source
         env:
           PYTHONPATH: src
         run: python -W error::ResourceWarning -m unittest discover -s tests -q
-      - name: Extract release archive
-        run: |
-          mkdir -p "$RUNNER_TEMP/narrow-release"
-          tar -xzf narrow-v0.5.0.tar.gz -C "$RUNNER_TEMP/narrow-release"
-          test -f "$RUNNER_TEMP/narrow-release/NARROW/src/narrow/locks.py"
-      - name: Test extracted package
-        working-directory: ${{ runner.temp }}/narrow-release/NARROW
+      - name: Run deterministic repaired workflow demo
+        env:
+          PYTHONPATH: src
+        run: python examples/demo.py --scenario repaired
+      - name: Run deterministic blocked workflow demo
+        env:
+          PYTHONPATH: src
+        run: python examples/demo.py --scenario blocked
+      - name: Test generated source archive
+        working-directory: ${{ runner.temp }}/narrow-release
         env:
           PYTHONPATH: src
         run: |
@@ -48,22 +62,74 @@ jobs:
           python -m narrow drive --help
           python -m narrow verify --help
           python -m narrow finish --help
+      - name: Upload tested source archive
+        if: ${{ matrix.python-version == '3.13' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: narrow-v0.5.0-alpha-source-${{ github.sha }}
+          path: ${{ runner.temp }}/narrow-source.tar.gz
+          if-no-files-found: error
 
-  windows-locks:
-    runs-on: windows-latest
-    timeout-minutes: 10
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.13"
-      - name: Compile source
-        run: python -m compileall -q src tests
+      - name: Compile source, tests, and demo
+        run: python -m compileall -q src tests examples
+      - name: Run full unit suite on macOS
+        env:
+          PYTHONPATH: src
+        run: python -W error::ResourceWarning -m unittest discover -s tests -q
+      - name: Exercise repaired and blocked demo workflows
+        env:
+          PYTHONPATH: src
+        run: |
+          python examples/demo.py --scenario repaired
+          python examples/demo.py --scenario blocked
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile source, tests, and demo
+        run: python -m compileall -q src tests examples
       - name: Exercise Windows task locks
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s tests -p test_locks.py -v
+      - name: Exercise repaired and blocked demo workflows
+        env:
+          PYTHONPATH: src
+        run: |
+          python examples/demo.py --scenario repaired
+          python examples/demo.py --scenario blocked
       - name: CLI smoke test
         env:
           PYTHONPATH: src
         run: python -m narrow --version
+
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+      - name: Install built wheel in a clean virtual environment
+        run: |
+          python -m venv "$RUNNER_TEMP/narrow-wheel-venv"
+          "$RUNNER_TEMP/narrow-wheel-venv/bin/python" -m pip install --no-deps dist/*.whl
+          "$RUNNER_TEMP/narrow-wheel-venv/bin/narrow" --version

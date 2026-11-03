@@ -38,12 +38,16 @@ This is coordination, not a machine sandbox. Detached descendants may outlive th
 
 Requirements: Python 3.11+, Git, and a supported local agent CLI for native provider execution.
 
-From a cloned NARROW source checkout:
+Clone the public source checkout, then install it locally:
 
 ```bash
+git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
+cd narrow-ai
 python -m pip install .
 narrow --version
 ```
+
+The v0.5.0 Alpha is currently distributed as source: clone this repository or use GitHub's **Code → Download ZIP** for the exact branch snapshot. There is no PyPI package or tagged GitHub Release yet.
 
 For development and tests:
 
@@ -138,6 +142,17 @@ narrow finish --task <task-id>
 
 A check result is snapshot-bound. Any subsequent workspace change makes the earlier result stale. Completion requires current passing configured checks, human-confirmed acceptance criteria, a safe workspace, and an unchanged original checkout.
 
+The exact review procedure matters: [Human review and acceptance](docs/HUMAN_REVIEW.md) explains how to inspect the isolated diff **and every untracked file**, record criterion-by-criterion evidence, and complete the final gate. NARROW records the user's assertion; it cannot prove that a human actually read the code.
+
+## Reproducible end-to-end demo
+
+The [local demo](docs/DEMO.md) exercises the actual CLI in a disposable temporary Git repository. It shows a failing check followed by a bounded repair/handoff, and a separate scenario that stops at `NEEDS_REVIEW`. It uses a deterministic fake agent—not Claude/Codex—and deliberately leaves the final human acceptance step to the user.
+
+```bash
+PYTHONPATH=src python examples/demo.py --scenario repaired
+PYTHONPATH=src python examples/demo.py --scenario blocked
+```
+
 ## Local Control Center
 
 Start the read-only dashboard from the original repository:
@@ -162,6 +177,18 @@ Open `http://127.0.0.1:8765`. It binds to loopback only, has no remote assets or
 
 The adapters use documented CLI interfaces, not private transcript or database formats. Actual authenticated end-to-end behavior still needs validation against the exact provider CLI and model installed on the user's machine. See [provider details](docs/PROVIDERS.md).
 
+## Which execution mode should I use?
+
+| Invocation | NARROW-configured boundary |
+|---|---|
+| `narrow drive --provider claude` | Native Claude profile: required fail-closed shell sandbox plus selected direct-file hooks. The hooks do not cover every provider tool/helper. |
+| `narrow drive --provider codex` | Native Codex `workspace-write` sandbox and provider approval semantics. |
+| `narrow drive --agent NAME` | Generic argv command only. NARROW does **not** create an OS sandbox for it. |
+| `narrow run` / `narrow resume` | Direct user-supplied command wrapper. Does not configure the native Claude/Codex profile. |
+| `narrow verify` / checks in `drive` | User-configured executable, shown for confirmation by default, still runs with the user's OS permissions. |
+
+For native provider safeguards, use `narrow drive --provider ...`; do not assume `narrow run -- claude` is equivalent. See the complete [threat model](docs/THREAT_MODEL.md).
+
 ## Safety boundaries — read before use
 
 - Each task is a separate Git copy without remotes. The source checkout is not edited by normal NARROW agent execution.
@@ -173,15 +200,16 @@ The adapters use documented CLI interfaces, not private transcript or database f
 - NARROW does not automatically commit, merge, push, publish, deploy, delete, or integrate changes.
 - A model's output, test success, or generated report is not independent proof of correctness. A human must review the actual changes.
 
-See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MODEL.md), and [the security policy](SECURITY.md).
+See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MODEL.md), [the security policy](SECURITY.md), and [the human-review procedure](docs/HUMAN_REVIEW.md).
 
 ## Current validation
 
-- Local QA: 79 tests pass on Linux, Python 3.13, Git 2.47.
-- GitHub Actions validates the CI matrix on Ubuntu with Python 3.11–3.14.
-- The local suite uses fakes for provider event and process behavior; it does not substitute for authenticated live Claude/Codex E2E tests.
-- macOS, Windows-native execution, and Android/Termux are not currently claimed as validated platforms.
-- Independent security review and OS-level sandbox validation remain release gates.
+- The local unit suite covers the CLI, task creation, path/snapshot gates, provider adapters with fakes, dashboard, bounded repair/handoff, and task locks.
+- GitHub Actions run [#41644004390](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41642840892) passed on the reviewed PR snapshot: Ubuntu/Python 3.11–3.14 full suites and demos, macOS/Python 3.13 full suite and demos, Windows Server 2025/Python 3.13 lock tests and demos, plus wheel/sdist build and clean wheel installation.
+- The run also created, extracted, and tested a source archive from the exact checked-out commit; the tested archive is attached to the workflow run as an artifact. GitHub's Download ZIP is the current-source download route.
+- The deterministic demo exercises successful repair and bounded failure with a fake agent. It is not an authenticated provider test.
+- Authenticated Claude/Codex end-to-end sessions, provider-version support guarantees, Windows inherited-handle crash lifetime, full OS-sandbox escape testing, and independent security review remain open gates.
+- Android/Termux is not a supported or validated platform claim.
 
 ## Contributing
 
