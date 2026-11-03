@@ -159,7 +159,7 @@ class EgressProxyPolicyTests(unittest.TestCase):
         # The proxy must not treat that outer name as proof of the final route.
         record = self.make_client_hello(
             "api.anthropic.com",
-            extra_extensions=b"\\xfe\\x0d\\x00\\x00",
+            extra_extensions=b"\xfe\x0d\x00\x00",
         )
         record_length = int.from_bytes(record[3:5], "big")
         message = record[5:5 + record_length]
