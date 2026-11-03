@@ -128,6 +128,53 @@ jobs:
           PYTHONPATH: src
         run: python -m narrow --version
 
+  container-runtime:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Build the reviewed Codex agent image
+        run: |
+          docker build \
+            --build-arg BASE_IMAGE=node:22-bookworm-slim \
+            --build-arg CODEX_VERSION=0.166.0 \
+            -f examples/containers/codex-agent.Dockerfile \
+            -t narrow-codex-agent:ci .
+      - name: Build the egress proxy image
+        run: |
+          docker build \
+            --build-arg BASE_IMAGE=python:3.12-slim-bookworm \
+            -f examples/containers/egress-proxy.Dockerfile \
+            -t narrow-egress-proxy:ci .
+      - name: Start a local OCI registry and publish test images
+        run: |
+          docker run --detach --rm --name narrow-ci-registry -p 5000:5000 registry:2
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
+          docker tag narrow-codex-agent:ci localhost:5000/narrow-codex-agent:ci
+          docker tag narrow-egress-proxy:ci localhost:5000/narrow-egress-proxy:ci
+          docker push localhost:5000/narrow-codex-agent:ci
+          docker push localhost:5000/narrow-egress-proxy:ci
+          echo "NARROW_AGENT_IMAGE=$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-codex-agent:ci)" >> "$GITHUB_ENV"
+          echo "NARROW_PROXY_IMAGE=$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-egress-proxy:ci)" >> "$GITHUB_ENV"
+          test -n "$NARROW_AGENT_IMAGE"
+          test -n "$NARROW_PROXY_IMAGE"
+      - name: Exercise real Docker proxy-only network topology
+        env:
+          NARROW_DOCKER_E2E: "1"
+          PYTHONPATH: src
+        run: python -W error::ResourceWarning -m unittest discover -s tests -p test_container_egress_integration.py -v
+      - name: Remove local test registry
+        if: always()
+        run: docker rm --force narrow-ci-registry || true
+
   package:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
