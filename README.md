@@ -49,17 +49,19 @@ python -m pip install .
 narrow --version
 ```
 
-The **v0.5.0 Alpha GitHub prerelease is published** with the `v0.5.0` tag. It is currently distributed as source; PyPI publication is prepared but not enabled until the package owner's Trusted Publisher setup and a TestPyPI smoke test are complete. See [the Python publishing guide](docs/PUBLISHING.md). For a reproducible install, check out the release tag explicitly:
+The current source release is tagged `v0.5.1`. This is a packaging and documentation refresh of the v0.5.0 Alpha; it does not change runtime behavior. See [the v0.5.1 release notes](docs/RELEASE-NOTES-v0.5.1.md) and [the Python publishing guide](docs/PUBLISHING.md).
+
+For a reproducible source install:
 
 ```bash
 git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
 cd narrow-ai
-git checkout v0.5.0
+git checkout v0.5.1
 python -m pip install .
 narrow --version
 ```
 
-See the [NARROW v0.5.0 Alpha release](https://github.com/ahmedfayedesmail-ui/narrow-ai/releases/tag/v0.5.0) for the published release notes and source archives.
+After the package has been published to the index you use, install it with `python -m pip install narrow-ai`.
 
 For development and tests:
 
