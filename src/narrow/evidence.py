@@ -12,6 +12,7 @@ import json
 import os
 import secrets
 import stat
+import time
 from pathlib import Path
 from typing import Any
 
@@ -35,11 +36,12 @@ def _load_or_create_key(project_root: Path) -> bytes:
             os.chmod(directory, 0o700)
         if path.is_symlink():
             raise NarrowError("NARROW evidence signing key is a symbolic link.")
-        flags = os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)
+        binary_flag = getattr(os, "O_BINARY", 0)
+        flags = os.O_RDONLY | binary_flag | getattr(os, "O_NOFOLLOW", 0)
         try:
             fd = os.open(path, flags)
         except FileNotFoundError:
-            create_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0)
+            create_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | binary_flag | getattr(os, "O_NOFOLLOW", 0)
             try:
                 fd = os.open(path, create_flags, 0o600)
             except FileExistsError:
@@ -47,7 +49,13 @@ def _load_or_create_key(project_root: Path) -> bytes:
             else:
                 key = secrets.token_bytes(32)
                 try:
-                    os.write(fd, key)
+                    view = memoryview(key)
+                    offset = 0
+                    while offset < len(view):
+                        written = os.write(fd, view[offset:])
+                        if written <= 0:
+                            raise OSError("Could not write the complete evidence key.")
+                        offset += written
                     os.fsync(fd)
                 finally:
                     os.close(fd)
@@ -56,10 +64,19 @@ def _load_or_create_key(project_root: Path) -> bytes:
                 return key
         try:
             metadata = os.fstat(fd)
-            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1 or metadata.st_size != 32:
-                raise NarrowError("NARROW evidence signing key is not a private 32-byte regular file.")
+            if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise NarrowError("NARROW evidence signing key is not a private regular file.")
             if os.name != "nt" and metadata.st_mode & 0o077:
                 raise NarrowError("NARROW evidence signing key permissions are too broad; expected mode 0600.")
+            for attempt in range(50):
+                metadata = os.fstat(fd)
+                if metadata.st_size == 32:
+                    break
+                if metadata.st_size > 32:
+                    raise NarrowError("NARROW evidence signing key has an invalid length.")
+                time.sleep(0.01)
+            if os.fstat(fd).st_size != 32:
+                raise NarrowError("NARROW evidence signing key is incomplete.")
             key = os.read(fd, 33)
             if len(key) != 32:
                 raise NarrowError("NARROW evidence signing key has an invalid length.")
