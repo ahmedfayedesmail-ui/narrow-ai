@@ -46,17 +46,17 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 
 **Remaining exit gate:** validate Windows inherited-handle crash behavior, authenticated Claude/Codex sessions, detached process behavior, macOS, and a real sandbox boundary. The execution lease is coordination, not an OS sandbox.
 
-## Experimental v0.5.2 feature branch — not released
+## v0.6.0b1 — Beta preview on main (source-only, unpublished)
 
 - Windows first-level child launch uses CREATE_SUSPENDED, kill-on-close Job assignment, explicit membership verification, and primary-thread resume only after assignment.
 
 
-The following capabilities are being developed separately from the published v0.5.1 Alpha package:
+The following capabilities are included in the current Beta preview on `main`; the published v0.5.1 PyPI package remains Alpha:
 
 - Project-manifest discovery proposes supported test commands without executing them; config changes require explicit review.
 - Plain-language task proposal can suggest a title, allowed/denied paths, and acceptance criteria. Local Ollama use is optional and loopback-only; a human must approve the contract before task creation.
 - Optional Docker/Podman isolation for verification commands remains available. It disables networking, uses a read-only container root and task-workspace mount by default, drops Linux capabilities, sets no-new-privileges, and applies CPU/memory/PID limits.
-- An experimental POSIX/local-Docker Codex agent profile is now wired on the feature branch behind `narrow drive --provider codex --container-agent`. It uses an internal agent bridge, a separately routed and inspected egress-proxy sidecar, a mounted per-execution capability, no agent default route, and ordered host-supervised cleanup. The profile is not in the published v0.5.1 package and is not Beta.
+- An experimental POSIX/local-Docker Codex agent profile is now wired on the Beta preview branch behind `narrow drive --provider codex --container-agent`. It uses an internal agent bridge, a separately routed and inspected egress-proxy sidecar, a mounted per-execution capability, no agent default route, and ordered host-supervised cleanup. The profile is included in this Beta preview but remains opt-in, POSIX/local-Docker only, and experimental.
 - Third-party provider adapter loading is available through the narrow.adapters Python entry-point group. This is a plugin interface, not bundled LangChain, CrewAI, or AutoGen integrations.
 
 - Windows first-level child-process Job Object assignment with kill-on-close. Initial process-creation-to-assignment race, breakaway cases, Docker daemon containers, and adversarial Windows crash tests remain open.
