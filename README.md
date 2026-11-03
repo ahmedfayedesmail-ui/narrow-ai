@@ -36,6 +36,7 @@ The current development branch adds four opt-in capabilities that are not part o
 - **Experimental Codex agent container:** `narrow drive --provider codex --container-agent` uses a digest-pinned agent image and a separate digest-pinned proxy image. The agent joins only an execution-scoped Docker internal network; the CONNECT proxy is dual-homed to that internal network and a separate execution-scoped uplink. No proxy host port is published. The sidecar's labels, network attachments, read-only token mount, no-publish setting, UID/GID, resource limits, and readiness are inspected before the agent starts. This mode is POSIX/local-Docker only and requires an explicit `OPENAI_API_KEY` in the host environment.
 
 Build and pin the agent/proxy images using the recipes and exact requirements in [examples/containers/README.md](examples/containers/README.md). The Docker daemon and host kernel remain trusted infrastructure; this is not equivalent to a Firecracker microVM or independent security review.
+
 To opt in to the experimental **Codex agent** container mode, add this reviewed configuration to `.narrow/config.json` (replace both digest references with images you built and audited):
 
 ```json
@@ -271,15 +272,12 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 
 ## Current validation
 
-- The local unit suite covers the CLI, task creation, path/snapshot gates, provider adapters with fakes, dashboard, bounded repair/handoff, and task locks.
-- The published `v0.5.0` release commit `5eb6a469c5c0317e2b9528dc2dcbfafd0fae5228` passed all eight CI jobs in [run #41650780275](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41650780275): Ubuntu/Python 3.11–3.14, macOS/Python 3.13, Windows Server 2025 repaired/blocked demo workflows, and wheel/sdist build plus clean wheel installation.
-- The current `main` commit `2d01a35ab43aef5775b80790fefb830abe59305e` also passed all eight jobs in [run #41651845855](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41651845855). This follow-up changes documentation only; the published application source and version remain unchanged.
-- The owner-confirmed GitHub release publisher completed successfully in [workflow run #41651002381](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41651002381), creating the `v0.5.0` Alpha prerelease from the release commit. These CI results are not authenticated provider sessions or an independent security review.
-- The run also created, extracted, and tested a source archive from the exact checked-out commit; the tested archive is attached to the workflow run as an artifact. GitHub's Download ZIP is the current-source download route.
-- The deterministic demo exercises successful repair and bounded failure with a fake agent. It is not an authenticated provider test.
-- Authenticated Claude/Codex end-to-end sessions, provider-version support guarantees, Windows inherited-handle crash lifetime, full OS-sandbox escape testing, and independent security review remain open gates.
-- Android/Termux is not a supported or validated platform claim.
-
+- The published `v0.5.1` package remains Alpha; its runtime is unchanged from the prior validated source release.
+- The `feat/container-agent-policy-manifest` branch contains the opt-in POSIX/local-Docker Codex agent runtime, proxy sidecar, policy/credential mounts, and ordered cleanup. These changes are not included in the published package.
+- The GitHub Actions workflow now runs feature branches on pull-request events only and cancels superseded runs. The current PR #16 matrix is running; the PR #17 runtime workflow includes a real Docker egress acceptance job, but it has not yet produced a passing result on the exact PR #17 head.
+- A successful Docker topology test is not an authenticated Codex session. An actual provider session, Windows/container fault injection, adversarial boundary testing, and independent security review remain Beta gates.
+- The demo uses a deterministic fake agent; it is not a provider, Docker, or security test.
+- Android/Termux remains unsupported and unvalidated.
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). Safety regressions, privacy leakage, and unbounded execution are release blockers.
