@@ -52,6 +52,7 @@ class ProxyConfig:
     idle_timeout: float = 90.0
     tunnel_timeout: float = 900.0
     max_connections: int = 32
+    container_private_listener: bool = False
 
 
 def normalize_hostname(value: str) -> str:
@@ -525,7 +526,12 @@ class EgressProxy:
     """Bounded CONNECT proxy; bind only to an isolated private agent network."""
 
     def __init__(self, config: ProxyConfig):
-        bind_host = validate_bind_host(config.bind_host)
+        if config.container_private_listener:
+            if config.bind_host != "0.0.0.0":
+                raise ProxyPolicyError("Container-private listener mode requires the exact 0.0.0.0 bind address.")
+            bind_host = config.bind_host
+        else:
+            bind_host = validate_bind_host(config.bind_host)
         allowed = normalize_allowlist(config.allowed_hosts)
         if (
             not isinstance(config.port, int)
@@ -560,6 +566,7 @@ class EgressProxy:
             idle_timeout=config.idle_timeout,
             tunnel_timeout=config.tunnel_timeout,
             max_connections=config.max_connections,
+            container_private_listener=config.container_private_listener,
         )
         self._server = _BoundedThreadingTCPServer(
             (bind_host, config.port), _ConnectHandler, self.config
@@ -582,7 +589,12 @@ def _main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         description="NARROW fail-closed HTTPS CONNECT egress proxy."
     )
-    parser.add_argument("--bind", required=True, help="Private/loopback interface IP; wildcard binds are refused.")
+    parser.add_argument("--bind", required=True, help="Private/loopback interface IP; wildcard binds are refused unless the explicitly container-private listener mode is selected.")
+    parser.add_argument(
+        "--container-private-listener",
+        action="store_true",
+        help="Allow 0.0.0.0 only inside a dedicated, unpublished NARROW proxy container. Never combine with host port publishing.",
+    )
     parser.add_argument("--port", type=int, default=_DEFAULT_PORT)
     parser.add_argument("--allow-host", action="append", required=True, help="Exact provider DNS hostname; repeat as needed.")
     parser.add_argument("--token-file", required=True, type=Path, help="Owner-only file containing a random bearer token.")
@@ -601,6 +613,7 @@ def _main(argv: list[str] | None = None) -> int:
                 max_connections=args.max_connections,
                 idle_timeout=args.idle_timeout,
                 tunnel_timeout=args.tunnel_timeout,
+                container_private_listener=args.container_private_listener,
             )
         )
     except (OSError, ProxyPolicyError) as exc:
