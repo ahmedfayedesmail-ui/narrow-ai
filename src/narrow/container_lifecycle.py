@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+import os
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -84,6 +85,16 @@ def _engine_path(engine: str) -> str:
 
 def _run(engine: str, args: list[str], *, timeout: int = 20) -> str:
     executable = _engine_path(engine)
+    allowed_environment = {"PATH", "HOME", "LANG", "LC_ALL", "DOCKER_CONFIG", "DOCKER_HOST"}
+    environment = {
+        key: value for key, value in os.environ.items()
+        if key in allowed_environment and isinstance(value, str) and "\x00" not in value
+    }
+    docker_host = environment.get("DOCKER_HOST")
+    if docker_host and not docker_host.startswith("unix://"):
+        raise NarrowError("Container lifecycle refuses a remote Docker daemon.")
+    if os.environ.get("DOCKER_CONTEXT") not in (None, "", "default"):
+        raise NarrowError("Container lifecycle refuses a non-default Docker context.")
     try:
         result = subprocess.run(
             [executable, *args],
@@ -91,6 +102,7 @@ def _run(engine: str, args: list[str], *, timeout: int = 20) -> str:
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=environment,
             check=False,
             shell=False,
         )
