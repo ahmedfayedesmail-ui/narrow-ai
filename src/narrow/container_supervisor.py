@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .container_lifecycle import cleanup_execution_agent_containers
+from .container_lifecycle import agent_container_labels, cleanup_execution_agent_containers
 from .core import NarrowError
 from .policy_manifest import _validate_execution_id
 
@@ -98,6 +98,20 @@ def run_container_agent(
         raise NarrowError("Docker supervisor argv contains an invalid argument.")
     if any(value == "--cidfile" for value in command):
         raise NarrowError("Docker cidfile is managed by NARROW and must not be supplied by callers.")
+    expected_execution = _validate_execution_id(execution_id)
+    expected_network = f"narrow-agent-{task_id[:32]}-{expected_execution.replace('-', '')[:12]}"
+    if "--network" not in command or command[command.index("--network") + 1:command.index("--network") + 2] != [expected_network]:
+        raise NarrowError("Docker agent command must use the exact task/execution internal network.")
+    label_pairs = {command[index + 1] for index, value in enumerate(command[:-1]) if value == "--label"}
+    required_labels = {f"{key}={value}" for key, value in agent_container_labels(task_id, expected_execution).items()}
+    if not required_labels.issubset(label_pairs):
+        raise NarrowError("Docker agent command is missing exact NARROW ownership labels.")
+    if not {"--init", "--read-only"}.issubset(set(command)):
+        raise NarrowError("Docker agent command must enable init and a read-only root filesystem.")
+    if "--cap-drop" not in command or command[command.index("--cap-drop") + 1:command.index("--cap-drop") + 2] != ["ALL"]:
+        raise NarrowError("Docker agent command must drop every Linux capability.")
+    if "--security-opt" not in command or command[command.index("--security-opt") + 1:command.index("--security-opt") + 2] != ["no-new-privileges:true"]:
+        raise NarrowError("Docker agent command must enable no-new-privileges.")
     if not isinstance(stdin_text, str) or "\x00" in stdin_text:
         raise NarrowError("Docker agent prompt must be text without NUL characters.")
     if not isinstance(timeout_seconds, int) or isinstance(timeout_seconds, bool) or not 1 <= timeout_seconds <= 24 * 60 * 60:
@@ -149,7 +163,8 @@ def run_container_agent(
         nonlocal oversized_line
         try:
             while True:
-                chunk = stream.read(8192)
+                reader = getattr(stream, "read1", stream.read)
+                chunk = reader(8192)
                 if not chunk:
                     break
                 pending.extend(chunk)
