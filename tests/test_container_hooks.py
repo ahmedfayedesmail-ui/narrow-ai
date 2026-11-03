@@ -10,7 +10,7 @@ import uuid
 from pathlib import Path
 from unittest.mock import patch
 
-from narrow.core import Store, create_task, init_project
+from narrow.core import NarrowError, Store, create_task, init_project
 from narrow.container_hooks import handle_container_claude_hook, import_container_hook_events
 from narrow.hooks import run_hook_cli
 from narrow.policy_manifest import write_policy_manifest
@@ -165,7 +165,7 @@ class ContainerHookTests(unittest.TestCase):
 
     def test_host_importer_rejects_spool_outside_task_execution_home(self):
         outside_spool = Path(self.temp.name) / "outside-hook-events.jsonl"
-        outside_spool.write_text("{}\\n", encoding="utf-8")
+        outside_spool.write_text("{}\n", encoding="utf-8")
         with self.assertRaisesRegex(NarrowError, "canonical file inside this task/execution agent home"):
             import_container_hook_events(
                 self.store, self.task["id"], self.execution_id, outside_spool
