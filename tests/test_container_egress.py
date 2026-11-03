@@ -196,9 +196,7 @@ class ContainerEgressTests(unittest.TestCase):
         from types import SimpleNamespace
 
         with tempfile.TemporaryDirectory() as folder:
-            state_dir = Path(folder) / ".narrow"
-            state_dir.mkdir()
-            self.store.state_dir = state_dir
+            state_dir = self.store.state_dir
             workspace = Path(folder) / "workspace"
             workspace.mkdir()
             task_home = state_dir / "runtime" / "agent" / TASK / EXECUTION / "home"
