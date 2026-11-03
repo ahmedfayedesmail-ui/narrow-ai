@@ -1,8 +1,19 @@
-name: NARROW v0.5.0 alpha checks
+name: NARROW v0.5.1 alpha checks
 
 on:
+  # Feature branches are validated by their PR event only. Running both
+  # push and pull_request for every feature commit doubles the hosted-runner
+  # queue without increasing coverage.
   push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# Keep only the newest validation for a given PR (or main push). Superseded
+# queued jobs are cancelled instead of consuming the hosted-runner backlog.
+concurrency:
+  group: narrow-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -66,7 +77,7 @@ jobs:
         if: ${{ matrix.python-version == '3.13' }}
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: narrow-v0.5.0-alpha-source-${{ github.sha }}
+          name: narrow-v0.5.1-alpha-source-${{ github.sha }}
           path: ${{ runner.temp }}/narrow-source.tar.gz
           if-no-files-found: error
 
