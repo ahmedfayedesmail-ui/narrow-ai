@@ -104,11 +104,21 @@ class ContainerHookTests(unittest.TestCase):
         self.assertEqual(self.read_events()[0]["event_type"], "CLAUDE_SESSION_START")
 
     def test_hook_cli_routes_to_manifest_mode_without_project_root(self):
+        # The production hook requires /workspace inside the actual container.
+        # Inject only the workspace resolver here so this routing test remains
+        # hermetic on host CI runners where /workspace does not exist.
         with patch.dict(os.environ, {"NARROW_PROJECT_ROOT": ""}):
-            with patch("narrow.container_hooks.sys.stdin", hook_input({"session_id": "cli-session"})):
-                with patch("sys.stdout", new_callable=io.StringIO) as output:
-                    result = run_hook_cli(["claude", "session-start"])
+            with patch(
+                "narrow.container_hooks.handle_container_claude_hook",
+                side_effect=lambda event: handle_container_claude_hook(
+                    event, workspace_override=self.workspace
+                ),
+            ) as dispatched:
+                with patch("narrow.container_hooks.sys.stdin", hook_input({"session_id": "cli-session"})):
+                    with patch("sys.stdout", new_callable=io.StringIO) as output:
+                        result = run_hook_cli(["claude", "session-start"])
         self.assertEqual(result, 0)
+        dispatched.assert_called_once_with("session-start")
         context = json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"]
         self.assertIn("NARROW CONTAINER TASK POLICY", context)
         self.assertEqual(self.read_events()[-1]["event_type"], "CLAUDE_SESSION_START")
