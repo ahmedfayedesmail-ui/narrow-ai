@@ -187,6 +187,135 @@ def read_token_file(path: Path) -> str:
     return token
 
 
+def _extract_client_hello_sni(message: bytes) -> str:
+    """Extract exactly one DNS SNI from a bounded TLS ClientHello handshake."""
+    if len(message) < 4 or message[0] != 1:
+        raise ProxyPolicyError("Only TLS ClientHello handshakes are accepted.")
+    declared = int.from_bytes(message[1:4], "big")
+    if declared > 32 * 1024 or len(message) < declared + 4:
+        raise ProxyPolicyError("TLS ClientHello is malformed or exceeds the size limit.")
+    body = memoryview(message)[4:4 + declared]
+    cursor = 0
+    if len(body) < 34:
+        raise ProxyPolicyError("TLS ClientHello is truncated.")
+    cursor += 34  # legacy_version + random
+    session_length = body[cursor]
+    cursor += 1
+    cursor += session_length
+    if cursor + 2 > len(body):
+        raise ProxyPolicyError("TLS ClientHello session ID is malformed.")
+    cipher_length = int.from_bytes(body[cursor:cursor + 2], "big")
+    cursor += 2
+    if cipher_length < 2 or cipher_length % 2 or cursor + cipher_length > len(body):
+        raise ProxyPolicyError("TLS ClientHello cipher list is malformed.")
+    cursor += cipher_length
+    if cursor + 1 > len(body):
+        raise ProxyPolicyError("TLS ClientHello compression list is malformed.")
+    compression_length = body[cursor]
+    cursor += 1
+    if compression_length < 1 or cursor + compression_length > len(body):
+        raise ProxyPolicyError("TLS ClientHello compression list is malformed.")
+    cursor += compression_length
+    if cursor + 2 > len(body):
+        raise ProxyPolicyError("TLS ClientHello extensions are missing.")
+    extensions_length = int.from_bytes(body[cursor:cursor + 2], "big")
+    cursor += 2
+    if cursor + extensions_length != len(body):
+        raise ProxyPolicyError("TLS ClientHello extension length is inconsistent.")
+
+    extension_end = cursor + extensions_length
+    server_names: list[str] = []
+    sni_extension_seen = False
+    while cursor < extension_end:
+        if cursor + 4 > extension_end:
+            raise ProxyPolicyError("TLS ClientHello extension header is truncated.")
+        extension_type = int.from_bytes(body[cursor:cursor + 2], "big")
+        extension_length = int.from_bytes(body[cursor + 2:cursor + 4], "big")
+        cursor += 4
+        if cursor + extension_length > extension_end:
+            raise ProxyPolicyError("TLS ClientHello extension payload is truncated.")
+        extension = body[cursor:cursor + extension_length]
+        cursor += extension_length
+        if extension_type != 0:
+            continue
+        if sni_extension_seen or len(extension) < 2:
+            raise ProxyPolicyError("TLS ClientHello SNI extension is malformed or duplicated.")
+        sni_extension_seen = True
+        names_length = int.from_bytes(extension[:2], "big")
+        if names_length != len(extension) - 2:
+            raise ProxyPolicyError("TLS ClientHello SNI list length is inconsistent.")
+        name_cursor = 2
+        while name_cursor < len(extension):
+            if name_cursor + 3 > len(extension):
+                raise ProxyPolicyError("TLS ClientHello server-name entry is truncated.")
+            name_type = extension[name_cursor]
+            name_length = int.from_bytes(extension[name_cursor + 1:name_cursor + 3], "big")
+            name_cursor += 3
+            if name_cursor + name_length > len(extension):
+                raise ProxyPolicyError("TLS ClientHello server-name value is truncated.")
+            raw_name = bytes(extension[name_cursor:name_cursor + name_length])
+            name_cursor += name_length
+            if name_type == 0:
+                try:
+                    server_names.append(normalize_hostname(raw_name.decode("ascii")))
+                except (UnicodeDecodeError, ProxyPolicyError) as exc:
+                    raise ProxyPolicyError("TLS ClientHello contains an invalid DNS SNI.") from exc
+    if len(server_names) != 1:
+        raise ProxyPolicyError("TLS ClientHello must contain exactly one DNS SNI.")
+    return server_names[0]
+
+
+def _recv_exact(sock: socket.socket, size: int) -> bytes:
+    output = bytearray()
+    while len(output) < size:
+        chunk = sock.recv(size - len(output))
+        if not chunk:
+            raise ProxyPolicyError("TLS ClientHello ended before the handshake was complete.")
+        output.extend(chunk)
+    return bytes(output)
+
+
+def _read_tls_client_hello(
+    sock: socket.socket,
+    *,
+    expected_hostname: str,
+    timeout: float,
+) -> bytes:
+    """Read bounded TLS handshake records and bind their SNI to the CONNECT host."""
+    previous_timeout = sock.gettimeout()
+    sock.settimeout(timeout)
+    raw_records = bytearray()
+    handshake = bytearray()
+    try:
+        expected_length: int | None = None
+        while expected_length is None or len(handshake) < expected_length:
+            record_header = _recv_exact(sock, 5)
+            content_type, major, minor = record_header[:3]
+            record_length = int.from_bytes(record_header[3:5], "big")
+            if content_type != 22 or major != 3 or minor not in {1, 2, 3, 4}:
+                raise ProxyPolicyError("Agent egress must begin with a TLS handshake record.")
+            if record_length < 1 or record_length > 18_432:
+                raise ProxyPolicyError("TLS handshake record exceeds the safety limit.")
+            record_payload = _recv_exact(sock, record_length)
+            raw_records.extend(record_header)
+            raw_records.extend(record_payload)
+            handshake.extend(record_payload)
+            if len(raw_records) > 48 * 1024 or len(handshake) > 32 * 1024:
+                raise ProxyPolicyError("TLS ClientHello exceeds the safety limit.")
+            if len(handshake) >= 4:
+                if handshake[0] != 1:
+                    raise ProxyPolicyError("Agent egress must begin with a ClientHello.")
+                expected_length = 4 + int.from_bytes(handshake[1:4], "big")
+                if expected_length > 32 * 1024:
+                    raise ProxyPolicyError("TLS ClientHello exceeds the safety limit.")
+        sni = _extract_client_hello_sni(bytes(handshake))
+        if sni != expected_hostname:
+            raise ProxyPolicyError("TLS SNI does not match the allowlisted CONNECT hostname.")
+        return bytes(raw_records)
+    finally:
+        sock.settimeout(previous_timeout)
+
+
 class _BoundedThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     allow_reuse_address = False
     daemon_threads = True
@@ -270,11 +399,13 @@ class _ConnectHandler(socketserver.StreamRequestHandler):
             return None
         return parts[1], headers
 
-    def _tunnel(self, upstream: socket.socket) -> None:
+    def _tunnel(self, upstream: socket.socket, initial_payload: bytes) -> None:
         client = self.connection
         started = last_activity = time.monotonic()
         client.settimeout(self.server.config.idle_timeout)
         upstream.settimeout(self.server.config.idle_timeout)
+        if initial_payload:
+            upstream.sendall(initial_payload)
         while True:
             now = time.monotonic()
             if now - started >= self.server.config.tunnel_timeout:
@@ -344,8 +475,15 @@ class _ConnectHandler(socketserver.StreamRequestHandler):
             self.connection.settimeout(config.idle_timeout)
             self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             self.wfile.flush()
-            self._tunnel(upstream)
-        except OSError:
+            # The CONNECT authority alone is insufficient: bind the encrypted
+            # tunnel's TLS SNI to the exact host that passed the DNS allowlist.
+            initial_payload = _read_tls_client_hello(
+                self.connection,
+                expected_hostname=target.hostname,
+                timeout=min(10.0, config.idle_timeout),
+            )
+            self._tunnel(upstream, initial_payload)
+        except (OSError, ProxyPolicyError, TimeoutError):
             pass
         finally:
             upstream.close()

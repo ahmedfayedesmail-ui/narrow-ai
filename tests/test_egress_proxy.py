@@ -12,6 +12,8 @@ from narrow.egress_proxy import (
     EgressProxy,
     ProxyConfig,
     _ConnectHandler,
+    _extract_client_hello_sni,
+    _read_tls_client_hello,
     ProxyPolicyError,
     check_proxy_token,
     normalize_allowlist,
@@ -103,6 +105,64 @@ class EgressProxyPolicyTests(unittest.TestCase):
         )
         with self.assertRaises(ProxyPolicyError):
             EgressProxy(config)
+
+
+    @staticmethod
+    def make_client_hello(hostname: str, split_after: int | None = None) -> bytes:
+        host = hostname.encode("ascii")
+        server_name = b"\\x00" + len(host).to_bytes(2, "big") + host
+        sni_list = len(server_name).to_bytes(2, "big") + server_name
+        sni_extension = b"\\x00\\x00" + len(sni_list).to_bytes(2, "big") + sni_list
+        extensions = sni_extension
+        body = (
+            b"\\x03\\x03" + b"\\x00" * 32
+            + b"\\x00"
+            + b"\\x00\\x02\\x13\\x01"
+            + b"\\x01\\x00"
+            + len(extensions).to_bytes(2, "big") + extensions
+        )
+        handshake = b"\\x01" + len(body).to_bytes(3, "big") + body
+        chunks = [handshake] if split_after is None else [
+            handshake[:split_after], handshake[split_after:]
+        ]
+        return b"".join(
+            b"\\x16\\x03\\x01" + len(chunk).to_bytes(2, "big") + chunk
+            for chunk in chunks
+        )
+
+    def test_tls_client_hello_sni_is_extracted(self):
+        record = self.make_client_hello("api.anthropic.com")
+        # One TLS record header precedes the ClientHello handshake message.
+        record_length = int.from_bytes(record[3:5], "big")
+        message = record[5:5 + record_length]
+        self.assertEqual(_extract_client_hello_sni(message), "api.anthropic.com")
+
+    def test_tls_client_hello_sni_must_match_connect_authority(self):
+        left, right = socket.socketpair()
+        try:
+            payload = self.make_client_hello("evil.example.com", split_after=7)
+            left.sendall(payload)
+            with self.assertRaisesRegex(ProxyPolicyError, "SNI does not match"):
+                _read_tls_client_hello(
+                    right, expected_hostname="api.anthropic.com", timeout=2.0
+                )
+        finally:
+            left.close()
+            right.close()
+
+    def test_tls_client_hello_supports_fragmented_handshake_records(self):
+        left, right = socket.socketpair()
+        payload = self.make_client_hello("api.anthropic.com", split_after=7)
+        try:
+            left.sendall(payload)
+            captured = _read_tls_client_hello(
+                right, expected_hostname="api.anthropic.com", timeout=2.0
+            )
+            self.assertEqual(captured, payload)
+        finally:
+            left.close()
+            right.close()
+
 
     def test_dns_failure_and_empty_results_fail_closed(self):
         with self.assertRaises(ProxyPolicyError):
