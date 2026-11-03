@@ -73,7 +73,7 @@ def prepare_sandbox_command(command: list[str], cwd: Path, config: dict[str, Any
         raise NarrowError(f"Container image {image!r} is not present locally. Build or pull it yourself first; NARROW never downloads images.")
     container_name = f"narrow-check-{os.getpid()}-{uuid.uuid4().hex[:10]}"
     workspace_text = str(workspace).replace("\\", "/") if os.name == "nt" else str(workspace)
-    mount_mode = "ro" if read_only else "rw"
+    mount_mode = "readonly" if read_only else "rw"
     argv = [
         engine_path, "run", "--rm", "--name", container_name,
         "--network=none", "--read-only", "--cap-drop=ALL",
