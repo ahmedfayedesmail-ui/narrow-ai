@@ -55,7 +55,13 @@ The following capabilities are being developed separately from the published v0.
 - Optional Docker/Podman isolation is wired for verification commands only. It disables networking, uses a read-only container root and task-workspace mount by default, drops Linux capabilities, sets no-new-privileges, and applies CPU/memory/PID limits. A prebuilt local image is required and never pulled automatically.
 - Third-party provider adapter loading is available through the narrow.adapters Python entry-point group. This is a plugin interface, not bundled LangChain, CrewAI, or AutoGen integrations.
 
-This does not yet provide an OS container around the AI agent process, a microVM, an interactive dashboard, or a validated Windows Job Object / inherited-lock lifetime guarantee. The default sandbox mode is off for compatibility. These are still release gates, not completed enterprise-security claims.
+- Windows first-level child-process Job Object assignment with kill-on-close. Initial process-creation-to-assignment race, breakaway cases, Docker daemon containers, and adversarial Windows crash tests remain open.
+- Random per-launch dashboard API token in a URL fragment/sessionStorage with header authorization and Host/Origin checks; all mutation methods remain disabled.
+- HMAC-SHA256 signatures for verification records, stored outside the task worktree and verified at finish. Local host compromise/key theft is outside this guarantee.
+- Field-version history and diffs for generated versus human-approved contracts; active contracts stay immutable.
+- Optional per-task pip/npm/pnpm/yarn cache mounts; no host home-directory cache or credential directories are mounted.
+
+This does not yet provide an OS container around the AI agent process, a microVM, an interactive write dashboard, or a complete validated Windows process-lifetime guarantee. The default sandbox mode is off for compatibility. These are still release gates, not completed enterprise-security claims.
 
 ## v0.6 — Stronger execution isolation (planned)
 
