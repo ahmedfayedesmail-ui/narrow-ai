@@ -150,6 +150,10 @@ class ContainerHookTests(unittest.TestCase):
             self.store, self.task["id"], self.execution_id, self.spool
         )
         self.assertEqual(imported, 1)
+        replayed = import_container_hook_events(
+            self.store, self.task["id"], self.execution_id, self.spool
+        )
+        self.assertEqual(replayed, 0)
         events = self.store.events(self.task["id"], limit=100)
         telemetry = [event for event in events if event["type"] == "CONTAINER_HOOK_TELEMETRY"]
         self.assertEqual(len(telemetry), 1)
@@ -166,7 +170,7 @@ class ContainerHookTests(unittest.TestCase):
                 "event_type": "CLAUDE_SESSION_START",
                 "created_at": "2026-11-03T00:00:00+00:00",
                 "payload": {},
-            }) + "\\n")
+            }) + "\n")
         imported = import_container_hook_events(
             self.store, self.task["id"], self.execution_id, self.spool
         )

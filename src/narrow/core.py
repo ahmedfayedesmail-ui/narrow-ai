@@ -239,6 +239,13 @@ class Store:
                     payload_json TEXT NOT NULL,
                     created_at TEXT NOT NULL
                 );
+                CREATE TABLE IF NOT EXISTS container_hook_imports (
+                    task_id TEXT NOT NULL REFERENCES tasks(id),
+                    execution_id TEXT NOT NULL,
+                    record_sha256 TEXT NOT NULL,
+                    imported_at TEXT NOT NULL,
+                    PRIMARY KEY (task_id, execution_id, record_sha256)
+                );
                 CREATE TABLE IF NOT EXISTS check_runs (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     task_id TEXT NOT NULL REFERENCES tasks(id),
@@ -273,6 +280,56 @@ class Store:
                 (task_id, event_type, json.dumps(safe_payload, ensure_ascii=False), now_iso()),
             )
             db.execute("UPDATE tasks SET updated_at=? WHERE id=?", (now_iso(), task_id))
+
+    def add_container_hook_event_once(
+        self,
+        task_id: str,
+        execution_id: str,
+        record_sha256: str,
+        payload: dict[str, Any],
+    ) -> bool:
+        """Persist one untrusted container-hook record exactly once per execution."""
+        if not isinstance(task_id, str) or not task_id or len(task_id) > 64:
+            raise NarrowError("Invalid task ID for container hook telemetry.")
+        if not isinstance(execution_id, str) or not execution_id or len(execution_id) > 64:
+            raise NarrowError("Invalid execution ID for container hook telemetry.")
+        if (
+            not isinstance(record_sha256, str)
+            or len(record_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in record_sha256)
+        ):
+            raise NarrowError("Invalid container hook record fingerprint.")
+
+        safe_payload = json.loads(json.dumps(payload or {}, default=str))
+
+        def scrub(item: Any) -> Any:
+            if isinstance(item, str):
+                return redact(item)
+            if isinstance(item, list):
+                return [scrub(value) for value in item]
+            if isinstance(item, dict):
+                return {str(key): scrub(value) for key, value in item.items()}
+            return item
+
+        safe_payload = scrub(safe_payload)
+        timestamp = now_iso()
+        with self.connect() as db:
+            inserted = db.execute(
+                """
+                INSERT OR IGNORE INTO container_hook_imports(
+                    task_id, execution_id, record_sha256, imported_at
+                ) VALUES(?,?,?,?)
+                """,
+                (task_id, execution_id, record_sha256, timestamp),
+            )
+            if inserted.rowcount == 0:
+                return False
+            db.execute(
+                "INSERT INTO events(task_id,event_type,payload_json,created_at) VALUES(?,?,?,?)",
+                (task_id, "CONTAINER_HOOK_TELEMETRY", json.dumps(safe_payload, ensure_ascii=False), timestamp),
+            )
+            db.execute("UPDATE tasks SET updated_at=? WHERE id=?", (timestamp, task_id))
+        return True
 
     def get_task(self, task_id: str | None = None) -> dict[str, Any]:
         with self.connect() as db:

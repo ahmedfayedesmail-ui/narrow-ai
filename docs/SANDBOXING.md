@@ -122,8 +122,10 @@ The Job handle is non-inheritable and remains owned by the NARROW supervisor,
 so forced supervisor termination closes it and activates kill-on-close.
 Windows Job assignment does not cover broker-created processes that are not
 ordinary descendants, nor does it itself terminate daemon-managed Docker
-containers. The hard-kill and deep-descendant tests are added but still require
-a real Windows run before this behavior can be described as validated.
+containers. The Windows repaired/blocked GitHub Actions jobs for the base hardening branch
+passed on 2026-11-03, including the dedicated Job Object test module. This is
+evidence for the runner configuration exercised by that workflow, not every
+Windows release, parent-Job arrangement, or third-party process broker.
 
 Verification rows now carry an HMAC-SHA256 signature over the task, check name,
 snapshot, command, result, duration, timestamp, and digest of the retained
@@ -158,6 +160,8 @@ evidence or as authority to approve a task.
 
 **This is preparatory code, not a usable Agent Docker Runtime yet.** The current
 launcher does not execute AI agents in Docker. The egress proxy, credential
-broker, task/execution-labeled container lifecycle, orphan reconciliation,
-and host-side event-spool importer are still required before the feature can
-be enabled. Existing native agent execution is unchanged.
+broker, task/execution-labeled container lifecycle, orphan reconciliation, and
+host-supervisor invocation of the event-spool importer after container exit
+are still required before the feature can be enabled. The importer helper is
+present, but it is not yet wired into a production agent-container lifecycle.
+Existing native agent execution is unchanged.

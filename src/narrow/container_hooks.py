@@ -5,6 +5,7 @@ task-scoped event spool. They never open the host NARROW SQLite database.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import stat
@@ -241,17 +242,22 @@ def import_container_hook_events(
             continue
         try:
             # The original event name remains data, not the host event type.
-            store.add_event(task_id, "CONTAINER_HOOK_TELEMETRY", {
-                "source": "agent_writable_event_spool",
-                "execution_id": execution,
-                "recorded_at": created_at,
-                "reported_event_type": event_type,
-                "trust": "untrusted_agent_telemetry",
-                "payload": _event_value(payload),
-            })
+            inserted = store.add_container_hook_event_once(
+                task_id,
+                execution,
+                hashlib.sha256(line).hexdigest(),
+                {
+                    "source": "agent_writable_event_spool",
+                    "execution_id": execution,
+                    "recorded_at": created_at,
+                    "reported_event_type": event_type,
+                    "trust": "untrusted_agent_telemetry",
+                    "payload": _event_value(payload),
+                },
+            )
         except Exception as exc:
             raise NarrowError(f"Could not import container hook telemetry: {type(exc).__name__}") from exc
-        imported += 1
+        imported += int(inserted)
     return imported
 
 
