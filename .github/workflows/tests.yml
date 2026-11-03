@@ -1,14 +1,20 @@
-name: NARROW v0.5.0 alpha checks
+name: NARROW v0.5.1 alpha checks
 
 on:
   push:
+    branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
-permissions:
-  contents: read
+concurrency:
+  group: narrow-ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:  contents: read
 
 jobs:
   test:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 25
     strategy:
@@ -66,11 +72,12 @@ jobs:
         if: ${{ matrix.python-version == '3.13' }}
         uses: actions/upload-artifact@v7.0.2
         with:
-          name: narrow-v0.5.0-alpha-source-${{ github.sha }}
+          name: narrow-v0.5.1-alpha-source-${{ github.sha }}
           path: ${{ runner.temp }}/narrow-source.tar.gz
           if-no-files-found: error
 
   macos:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: macos-latest
     timeout-minutes: 25
     steps:
@@ -92,6 +99,7 @@ jobs:
           python examples/demo.py --scenario blocked
 
   windows:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: windows-latest
     timeout-minutes: 20
     strategy:
@@ -120,6 +128,7 @@ jobs:
         run: python -m narrow --version
 
   package:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
