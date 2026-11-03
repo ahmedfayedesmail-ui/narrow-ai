@@ -106,12 +106,12 @@ def discover_project(root: Path) -> dict[str, Any]:
     if "pom.xml" in file_set:
         languages.add("Java")
         frameworks.add("Maven")
-        command = [("mvnw.cmd" if os.name == "nt" else "./mvnw"), "test"] if "mvnw" in file_set else ["mvn", "test"]
+        command = ["./mvnw", "test"] if "mvnw" in file_set and os.name != "nt" else ["mvn", "test"]
         checks.append({"name": "maven", "command": command, "timeout_seconds": 900, "reason": "pom.xml was found at the project root."})
     elif any(name in file_set for name in ("build.gradle", "build.gradle.kts")):
         languages.add("Java")
         frameworks.add("Gradle")
-        wrapper = ("gradlew.bat" if os.name == "nt" else "./gradlew") if "gradlew" in file_set else "gradle"
+        wrapper = "./gradlew" if "gradlew" in file_set and os.name != "nt" else "gradle"
         checks.append({"name": "gradle", "command": [wrapper, "test"], "timeout_seconds": 900, "reason": "A Gradle build file was found at the project root."})
     if "composer.json" in file_set:
         scripts = _read_json(root / "composer.json").get("scripts", {})
