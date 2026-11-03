@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from .container_hooks import import_container_hook_events
+from .container_egress import remove_execution_proxy_token_file
 from .container_lifecycle import (
     cleanup_execution_agent_containers,
     cleanup_execution_agent_networks,
@@ -90,12 +91,14 @@ def recover_agent_execution(
         raise NarrowError("Runtime recovery stopped: an agent container reappeared during cleanup.")
     removed_uplink_networks = cleanup_execution_egress_uplink_networks("docker", task_id, execution)
     removed_networks = cleanup_execution_agent_networks("docker", task_id, execution)
+    removed_proxy_token = remove_execution_proxy_token_file(store, task_id, execution)
 
     report = {
         "execution_id": execution,
         "removed_containers": removed_containers,
         "removed_egress_proxy_containers": removed_proxy_containers,
         "removed_egress_uplink_networks": removed_uplink_networks,
+        "removed_proxy_token": removed_proxy_token,
         "removed_networks": removed_networks,
         "revoked_credentials": revoked_credentials,
         "imported_untrusted_hook_events": imported_events,
