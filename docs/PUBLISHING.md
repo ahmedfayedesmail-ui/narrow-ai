@@ -17,16 +17,17 @@ Configure a Trusted Publisher on each index. These are account-owner steps and c
 
 1. Sign in to TestPyPI.
 2. Create a pending publisher for a new project.
-3. Use these exact values:
+3. Create a **pending publisher** for a new project named `narrow-ai`. Pending publishers do not reserve the name until the first successful upload, so register it immediately before testing the publish.
+4. Use these exact GitHub Actions values:
    - Owner: `ahmedfayedesmail-ui`
    - Repository: `narrow-ai`
    - Workflow: `publish-pypi.yml`
    - Environment: `testpypi`
-4. Save the pending publisher.
+5. Save the pending publisher.
 
 ### PyPI production
 
-After the TestPyPI upload and install smoke test succeeds, sign in to PyPI and create a pending publisher with:
+After the TestPyPI upload and install smoke test succeeds, sign in to PyPI and create a pending publisher for the new `narrow-ai` project with:
    - Owner: `ahmedfayedesmail-ui`
    - Repository: `narrow-ai`
    - Workflow: `publish-pypi.yml`
@@ -36,7 +37,7 @@ Do not configure a publisher against a different repository, workflow, or enviro
 
 Official setup guides:
 - PyPI Trusted Publishing: https://docs.pypi.org/trusted-publishers/
-- Creating a new PyPI project with a Trusted Publisher: https://docs.pypi.org/trusted-publishers/creating-a-project/
+- Creating a new PyPI project with a Trusted Publisher: https://docs.pypi.org/trusted-publishers/creating-a-project-through-oidc/
 
 ## Publish procedure
 
