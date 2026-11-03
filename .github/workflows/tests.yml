@@ -16,8 +16,8 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: ${{ matrix.python-version }}
       - name: Build source archive from the exact checkout
@@ -64,7 +64,7 @@ jobs:
           python -m narrow finish --help
       - name: Upload tested source archive
         if: ${{ matrix.python-version == '3.13' }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.2
         with:
           name: narrow-v0.5.0-alpha-source-${{ github.sha }}
           path: ${{ runner.temp }}/narrow-source.tar.gz
@@ -74,8 +74,8 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.13"
       - name: Compile source, tests, and demo
@@ -100,8 +100,8 @@ jobs:
         demo-scenario: ["repaired", "blocked"]
     name: windows (${{ matrix.demo-scenario }})
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.13"
       - name: Compile source, tests, and demo
@@ -123,8 +123,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.13"
       - name: Build wheel and source distribution
