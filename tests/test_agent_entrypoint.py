@@ -58,17 +58,20 @@ class AgentEntrypointTests(unittest.TestCase):
             "GITHUB_TOKEN": "must-not-pass",
             "OPENAI_API_KEY": "other-provider-secret",
         }
-        env = build_provider_environment("claude", "claude-secret", inherited)
+        env = build_provider_environment("claude", "claude-secret", inherited, proxy_token="p" * 48)
         self.assertEqual(env["ANTHROPIC_API_KEY"], "claude-secret")
         self.assertNotIn("OPENAI_API_KEY", env)
         self.assertNotIn("AWS_SECRET_ACCESS_KEY", env)
         self.assertNotIn("GITHUB_TOKEN", env)
-        self.assertEqual(env["HTTP_PROXY"], inherited["HTTP_PROXY"])
+        self.assertEqual(env["HTTP_PROXY"], "http://narrow:" + "p" * 48 + "@narrow-egress-proxy:3128")
+        self.assertEqual(env["HTTPS_PROXY"], env["HTTP_PROXY"])
+        self.assertEqual(env["NO_PROXY"], "localhost,127.0.0.1")
 
     def test_selected_provider_key_replaces_inherited_value(self):
         env = build_provider_environment(
             "codex", "selected-secret",
             {"PATH": "/usr/bin", "ANTHROPIC_API_KEY": "wrong-secret", "OPENAI_API_KEY": "wrong-secret"},
+            proxy_token="p" * 48,
         )
         self.assertEqual(env["OPENAI_API_KEY"], "selected-secret")
         self.assertNotIn("ANTHROPIC_API_KEY", env)
