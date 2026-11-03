@@ -187,6 +187,8 @@ def _resume_primary_thread(pid: int) -> None:
     kernel32.Thread32First.restype = wintypes.BOOL
     kernel32.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ThreadEntry32)]
     kernel32.Thread32Next.restype = wintypes.BOOL
+    kernel32.SetLastError.argtypes = [wintypes.DWORD]
+    kernel32.SetLastError.restype = None
     kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
     kernel32.OpenThread.restype = wintypes.HANDLE
     kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
@@ -201,13 +203,20 @@ def _resume_primary_thread(pid: int) -> None:
     try:
         entry = _ThreadEntry32()
         entry.dwSize = ctypes.sizeof(_ThreadEntry32)
+        kernel32.SetLastError(0)
         found = kernel32.Thread32First(snapshot, ctypes.byref(entry))
+        if not found:
+            raise NarrowError(f"Could not enumerate Windows threads (WinError {ctypes.get_last_error()}).")
         while found:
             if entry.th32OwnerProcessID == pid:
                 if thread_id is not None:
                     raise NarrowError("A suspended child unexpectedly has more than one thread; refusing to resume it.")
                 thread_id = int(entry.th32ThreadID)
+            kernel32.SetLastError(0)
             found = kernel32.Thread32Next(snapshot, ctypes.byref(entry))
+        enumeration_error = ctypes.get_last_error()
+        if enumeration_error not in {0, 18}:  # ERROR_NO_MORE_FILES marks normal end of enumeration.
+            raise NarrowError(f"Windows thread enumeration failed (WinError {enumeration_error}).")
     finally:
         kernel32.CloseHandle(snapshot)
 
