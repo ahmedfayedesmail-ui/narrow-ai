@@ -417,8 +417,6 @@ def run_codex_container_agent(
     This is POSIX/local-Docker only and remains opt-in.
     """
     from .agent_runtime import build_docker_agent_command
-    from .container_hooks import import_container_hook_events
-    from .container_recovery import _TASK_ID
     from .container_supervisor import run_container_agent
     from .credential_broker import issue_credential_lease, revoke_credential_lease
     from .policy_manifest import write_policy_manifest
@@ -430,7 +428,12 @@ def run_codex_container_agent(
         raise NarrowError("Container agent prompt must be bounded UTF-8 text.")
     if not isinstance(provider_command, list) or not provider_command:
         raise NarrowError("Container agent requires the reviewed Codex provider command.")
-    if not isinstance(task_id, str) or not _TASK_ID_CHARS.issuperset(task_id):
+    if (
+        not isinstance(task_id, str)
+        or not task_id
+        or len(task_id) > 64
+        or any(character not in _TASK_ID_CHARS for character in task_id)
+    ):
         raise NarrowError("Invalid task ID for container agent execution.")
     execution = _validate_execution_id(execution_id)
     validate_agent_image(agent_image)
