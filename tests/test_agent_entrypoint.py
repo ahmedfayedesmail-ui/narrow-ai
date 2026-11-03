@@ -100,5 +100,11 @@ class AgentEntrypointTests(unittest.TestCase):
         self.assertTrue(_route_table_has_default_route(safe_ipv4, default_ipv6))
 
 
+    def test_route_table_parser_rejects_malformed_ipv4_flags(self):
+        malformed = "Iface Destination Gateway Flags RefCnt Use Metric Mask\neth0 00000000 01001AAC not-hex 0 0 0 00000000\n"
+        with self.assertRaisesRegex(NarrowError, "IPv4 route table contains malformed"):
+            _route_table_has_default_route(malformed, "")
+
+
 if __name__ == "__main__":
     unittest.main()
