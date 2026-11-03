@@ -177,7 +177,6 @@ class ContainerEgressTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt" or os.getuid() == 0, "Requires a non-root POSIX host identity")
     def test_codex_container_agent_wrapper_wires_manifest_lease_proxy_and_supervisor(self):
         from types import SimpleNamespace
-        from unittest.mock import ANY
 
         with tempfile.TemporaryDirectory() as folder:
             state_dir = Path(folder) / ".narrow"
@@ -214,7 +213,9 @@ class ContainerEgressTests(unittest.TestCase):
                 allowed_hosts=("api.openai.com",),
             )
             task = {"id": TASK}
-            with patch("narrow.policy_manifest.write_policy_manifest", return_value=SimpleNamespace(path=manifest_path)), patch(
+            with patch.object(self.store, "add_event"), patch(
+                "narrow.policy_manifest.write_policy_manifest", return_value=SimpleNamespace(path=manifest_path)
+            ), patch(
                 "narrow.credential_broker.issue_credential_lease", return_value=lease
             ) as issue, patch(
                 "narrow.container_egress.provision_execution_egress_proxy", return_value=runtime
