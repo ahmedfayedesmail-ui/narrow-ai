@@ -1,19 +1,17 @@
-name: Publish NARROW v0.5.0 Alpha
-
-on:
-  issues:
-    types: [opened]
+'on':
+  workflow_dispatch:
+    inputs:
+      authorization:
+        description: Type PUBLISH NARROW V0.5.0 ALPHA to authorize the release
+        required: true
+        type: string
 
 permissions:
   contents: write
-  issues: write
 
 jobs:
   publish-v050:
-    if: >-
-      github.event.issue.title == 'PUBLISH NARROW V0.5.0 ALPHA' &&
-      github.event.issue.user.login == 'ahmedfayedesmail-ui' &&
-      contains(github.event.issue.body, 'I authorize publication of NARROW v0.5.0 Alpha.')
+    if: ${{ github.actor == 'ahmedfayedesmail-ui' && inputs.authorization == 'PUBLISH NARROW V0.5.0 ALPHA' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -91,8 +89,3 @@ NOTES
             --prerelease \
             --target "$TARGET_SHA"
 
-      - name: Close the one-time release authorization issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-        run: gh issue close "$ISSUE_NUMBER" --repo ahmedfayedesmail-ui/narrow-ai --reason completed
