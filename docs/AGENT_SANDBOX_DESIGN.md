@@ -176,3 +176,20 @@ direct routes, persist execution state, and reconcile after host crashes.
 Until these tests pass, the existing provider-specific sandbox/hook protections
 remain in place and the feature must be described as verification-only
 containerization, not a universal agent sandbox.
+
+
+## First container launch-planning slice
+
+The preparatory `narrow.agent_runtime` module now requires immutable digest-
+pinned image references and rebuilds only the known Codex adapter arguments.
+It translates the host worktree argument to the virtual `/workspace` path,
+preserves the configured workspace-write sandbox and non-interactive approval
+policy, allows only the reviewed model/reasoning-effort options, and requires
+the stdin prompt sentinel. It refuses Claude until its host-generated settings
+and hook files have a container-specific replacement.
+
+This is argument planning only. It does not start Docker, create the proxy
+sidecar, supervise a container ID, import hook events, revoke credentials, or
+recover after a host crash. The normal `narrow drive` workflow does not use
+this module yet; native host execution remains unchanged. Do not treat this
+slice as a working agent sandbox.
