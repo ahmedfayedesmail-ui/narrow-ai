@@ -20,6 +20,7 @@ from .core import (
 )
 from .supervisor import BLOCKED_FLAGS, run_agent, run_verification_command
 from .locks import task_execution_lock
+from .sandbox import prepare_sandbox_command
 from .providers import (
     build_provider_command,
     get_adapter,
@@ -220,6 +221,15 @@ def _drive_task_unlocked(
     attempts = max_attempts if max_attempts is not None else configured_attempts
     if attempts < 1 or attempts > 5:
         raise NarrowError("max_attempts must be between 1 and 5. NARROW keeps repair loops strictly bounded.")
+    # Validate the runtime, image, and container options before launching an agent.
+    # A missing image/engine must never be discovered after the agent has modified
+    # its isolated workspace.
+    for name, spec in checks.items():
+        prepare_sandbox_command(
+            _validate_command(spec.get("command"), f"Check '{name}'"),
+            task_workspace(task),
+            sandbox_config,
+        )
     if not _confirm_auto_checks(checks, yes_checks, sandbox_config):
         print("Cancelled. No agent or verification command was run.")
         return 1
