@@ -222,6 +222,7 @@ def _verify_sidecar(
     uplink_network: AgentNetwork,
     uid: int,
     gid: int,
+    allowed_hosts: tuple[str, ...],
 ) -> str:
     config = inspected.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
@@ -230,8 +231,19 @@ def _verify_sidecar(
         raise NarrowError("Egress proxy sidecar does not carry exact NARROW execution ownership labels.")
     if not isinstance(config, dict) or config.get("Image") != image:
         raise NarrowError("Egress proxy sidecar image differs from the requested digest-pinned image.")
-    if config.get("User") != f"{uid}:{gid}" or config.get("Entrypoint") not in (["python"], "python"):
+    if config.get("User") != f"{uid}:{gid}" or config.get("Entrypoint") != ["python"]:
         raise NarrowError("Egress proxy sidecar must run its reviewed Python entrypoint as the non-root host UID/GID.")
+    expected_command = [
+        "-m", "narrow.egress_proxy",
+        "--bind", "0.0.0.0",
+        "--container-private-listener",
+        "--port", "3128",
+        "--token-file", "/run/secrets/proxy-token",
+    ]
+    for host_name in allowed_hosts:
+        expected_command.extend(["--allow-host", host_name])
+    if config.get("Cmd") != expected_command:
+        raise NarrowError("Egress proxy sidecar command differs from the reviewed exact-host CONNECT policy.")
     state = inspected.get("State")
     if not isinstance(state, dict) or state.get("Running") is not True:
         raise NarrowError("Egress proxy sidecar is not running.")
@@ -360,6 +372,7 @@ def provision_execution_egress_proxy(
             uplink_network=uplink_network,
             uid=uid,
             gid=gid,
+            allowed_hosts=allowed,
         )
         if verified_id != created_id:
             raise NarrowError("Egress proxy sidecar identity changed during verification.")
