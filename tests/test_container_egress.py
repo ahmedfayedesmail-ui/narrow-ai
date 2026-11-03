@@ -63,6 +63,8 @@ class ContainerEgressTests(unittest.TestCase):
             "Name": "/narrow-egress-proxy-task_123-123e4567e89b",
             "Config": {
                 "Image": IMAGE,
+                "User": f"{os.getuid()}:{os.getgid()}",
+                "Entrypoint": ["python"],
                 "Labels": egress_proxy_container_labels(TASK, EXECUTION),
             },
             "State": {"Running": True},
@@ -73,6 +75,12 @@ class ContainerEgressTests(unittest.TestCase):
                 "CapDrop": ["ALL"],
                 "SecurityOpt": ["no-new-privileges:true"],
                 "PortBindings": self.port_bindings,
+                "PublishAllPorts": False,
+                "PidsLimit": 64,
+                "Memory": 256 * 1024 * 1024,
+                "NanoCpus": 500_000_000,
+                "Devices": None,
+                "Binds": None,
                 "NetworkMode": self.agent_network.name,
             },
             "Mounts": [{
