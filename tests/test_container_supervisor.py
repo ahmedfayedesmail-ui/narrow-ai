@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from narrow.container_supervisor import _docker_environment, _private_execution_dir, run_container_agent
+from narrow.container_supervisor import _docker_environment, _private_execution_dir, _run_container_agent
 from narrow.core import NarrowError
 
 
@@ -36,7 +36,7 @@ class ContainerSupervisorTests(unittest.TestCase):
     def test_rejects_unapproved_volume_syntax_before_start(self):
         with patch("narrow.container_supervisor.subprocess.Popen") as popen:
             with self.assertRaisesRegex(NarrowError, "forbidden host-access"):
-                run_container_agent(
+                _run_container_agent(
                     ["docker", "run", "-v", "/:/workspace"],
                     store=None, credential_lease=None, task_id="task_1",
                     execution_id="123e4567-e89b-12d3-a456-426614174000",
@@ -48,7 +48,7 @@ class ContainerSupervisorTests(unittest.TestCase):
     def test_rejects_host_env_file_syntax_before_start(self):
         with patch("narrow.container_supervisor.subprocess.Popen") as popen:
             with self.assertRaisesRegex(NarrowError, "forbidden host-access"):
-                run_container_agent(
+                _run_container_agent(
                     ["docker", "run", "--env-file", "/tmp/host.env"],
                     store=None, credential_lease=None, task_id="task_1",
                     execution_id="123e4567-e89b-12d3-a456-426614174000",
