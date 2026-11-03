@@ -81,6 +81,10 @@ class AgentRuntimePlanTests(unittest.TestCase):
                 expires_at=time.time() + 300,
                 sha256=hashlib.sha256(payload).hexdigest(),
             )
+            proxy_token = state / "runtime" / "agent" / task_id / execution_id / "proxy.token"
+            proxy_token.parent.mkdir(parents=True, exist_ok=True)
+            proxy_token.write_text("d" * 48 + "\n", encoding="ascii")
+            proxy_token.chmod(0o400)
             workspace = root / "workspace"
             home = root / "home"
             workspace.mkdir()
@@ -100,7 +104,7 @@ class AgentRuntimePlanTests(unittest.TestCase):
                     credential_lease=lease,
                     task_id=task_id,
                     execution_id=execution_id,
-                    proxy_token="d" * 48,
+                    proxy_token_path=proxy_token,
                     uid=os.getuid(),
                     gid=os.getgid(),
                 )
@@ -112,7 +116,9 @@ class AgentRuntimePlanTests(unittest.TestCase):
         self.assertEqual(command[command.index("--security-opt") + 1], "no-new-privileges:true")
         self.assertIn("target=/run/narrow/policy.json,readonly", " ".join(command))
         self.assertIn("target=/run/secrets/provider-api-key,readonly", " ".join(command))
-        self.assertIn("HTTP_PROXY=http://narrow:" + "d" * 48 + "@narrow-egress-proxy:3128", command)
+        self.assertIn("target=/run/secrets/proxy-token,readonly", " ".join(command))
+        self.assertFalse(any("HTTP_PROXY=" in value or "HTTPS_PROXY=" in value for value in command))
+        self.assertIn("--proxy-token-file", command)
         self.assertEqual(command[-1], "-")
         self.assertEqual(command[command.index("--workdir") + 1], "/workspace")
         self.assertEqual(command[command.index("--user") + 1], f"{os.getuid()}:{os.getgid()}")
