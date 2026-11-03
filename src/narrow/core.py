@@ -348,7 +348,7 @@ def default_config() -> dict[str, Any]:
             "memory": "2g",
             "cpus": "2",
             "pids_limit": 256,
-            "workspace_read_only": False,
+            "workspace_read_only": True,
         },
     }
 
