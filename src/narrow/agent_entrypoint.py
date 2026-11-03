@@ -1,0 +1,146 @@
+"""Minimal in-container entrypoint for consuming a mounted provider credential.
+
+The host launcher mounts one task-scoped credential file read-only. This
+entrypoint reads that one file, injects only the selected provider key into a
+sanitized child environment, and replaces itself with the pinned provider CLI.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import stat
+import sys
+from pathlib import Path
+from typing import Sequence
+
+from .core import NarrowError
+
+_PROVIDER = {
+    "claude": ("claude", "ANTHROPIC_API_KEY"),
+    "codex": ("codex", "OPENAI_API_KEY"),
+}
+_MAX_CREDENTIAL_BYTES = 16 * 1024
+_ALLOWED_ENV = {
+    "PATH", "HOME", "LANG", "LC_ALL", "TMPDIR", "XDG_CONFIG_HOME",
+    "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY",
+    "http_proxy", "https_proxy", "all_proxy", "no_proxy",
+    "NARROW_POLICY_MANIFEST", "NARROW_TASK_ID", "NARROW_EXECUTION_ID",
+    "NARROW_CONTAINER_EVENT_SPOOL",
+}
+
+
+def read_mounted_credential(path: Path) -> str:
+    """Read a single regular, unlinked, bounded, owner-only mounted secret."""
+    source = Path(path)
+    try:
+        metadata = source.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or metadata.st_size <= 0
+            or metadata.st_size > _MAX_CREDENTIAL_BYTES
+        ):
+            raise NarrowError("Mounted provider credential is not a bounded regular file.")
+        if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o077:
+            raise NarrowError("Mounted provider credential permissions are broader than owner-only.")
+        descriptor = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or opened.st_size != metadata.st_size
+            ):
+                raise NarrowError("Mounted provider credential changed during open.")
+            payload = bytearray()
+            while len(payload) <= _MAX_CREDENTIAL_BYTES:
+                chunk = os.read(descriptor, min(4096, _MAX_CREDENTIAL_BYTES + 1 - len(payload)))
+                if not chunk:
+                    break
+                payload.extend(chunk)
+            if len(payload) != opened.st_size:
+                raise NarrowError("Mounted provider credential changed or exceeded its read limit.")
+        finally:
+            os.close(descriptor)
+    except NarrowError:
+        raise
+    except OSError as exc:
+        raise NarrowError("Could not safely read mounted provider credential.") from exc
+    try:
+        value = payload.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        raise NarrowError("Mounted provider credential is not valid UTF-8.") from exc
+    if not value or "\x00" in value or "\n" in value or "\r" in value:
+        raise NarrowError("Mounted provider credential must be a non-empty single-line value.")
+    return value
+
+
+def build_provider_environment(
+    provider: str,
+    credential: str,
+    inherited: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Keep only runtime allowlisted environment variables and one provider key."""
+    if provider not in _PROVIDER:
+        raise NarrowError("Container entrypoint supports only claude and codex.")
+    if not isinstance(credential, str) or not credential or any(char in credential for char in "\x00\r\n"):
+        raise NarrowError("Provider credential is invalid.")
+    source = os.environ if inherited is None else inherited
+    env = {
+        key: value for key, value in source.items()
+        if key in _ALLOWED_ENV and isinstance(value, str) and "\x00" not in value
+    }
+    # Do not forward either provider key from the parent environment.
+    env.pop("ANTHROPIC_API_KEY", None)
+    env.pop("OPENAI_API_KEY", None)
+    env[_PROVIDER[provider][1]] = credential
+    return env
+
+
+def build_exec_argv(provider: str, command: Sequence[str]) -> list[str]:
+    """Allow only the selected provider CLI as the child executable."""
+    if provider not in _PROVIDER:
+        raise NarrowError("Container entrypoint supports only claude and codex.")
+    if not isinstance(command, (list, tuple)) or not command:
+        raise NarrowError("A provider CLI command is required after --.")
+    argv = list(command)
+    if any(not isinstance(item, str) or not item or "\x00" in item for item in argv):
+        raise NarrowError("Provider CLI arguments must be non-empty strings without NUL bytes.")
+    executable = Path(argv[0]).name.lower()
+    if executable != _PROVIDER[provider][0]:
+        raise NarrowError("Provider entrypoint refused an executable that does not match the selected provider.")
+    return argv
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="NARROW provider credential entrypoint")
+    parser.add_argument("--provider", required=True, choices=tuple(_PROVIDER))
+    parser.add_argument("--credential-file", required=True, type=Path)
+    parser.add_argument("command", nargs=argparse.REMAINDER, help="provider CLI argv after --")
+    return parser
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    args = _parser().parse_args(argv)
+    command = list(args.command)
+    if command and command[0] == "--":
+        command = command[1:]
+    try:
+        exec_argv = build_exec_argv(args.provider, command)
+        credential = read_mounted_credential(args.credential_file)
+        child_env = build_provider_environment(args.provider, credential)
+    except NarrowError as exc:
+        print(f"NARROW agent entrypoint: {exc}", file=sys.stderr)
+        return 2
+    try:
+        os.execvpe(exec_argv[0], exec_argv, child_env)
+    except OSError as exc:
+        print(f"NARROW agent entrypoint: provider CLI could not start ({type(exc).__name__}).", file=sys.stderr)
+        return 127
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
