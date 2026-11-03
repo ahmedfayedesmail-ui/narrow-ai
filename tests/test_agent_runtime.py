@@ -23,6 +23,10 @@ class AgentRuntimePlanTests(unittest.TestCase):
         value = "ghcr.io/acme/narrow-agent@sha256:" + "a" * 64
         self.assertEqual(validate_agent_image(value), value)
 
+    def test_accepts_port_qualified_local_registry_digest(self):
+        value = "localhost:5000/narrow-agent@sha256:" + "c" * 64
+        self.assertEqual(validate_agent_image(value), value)
+
     def test_rejects_mutable_image_tags(self):
         with self.assertRaises(NarrowError):
             validate_agent_image("narrow-agent:latest")
