@@ -76,7 +76,8 @@ def discover_project(root: Path) -> dict[str, Any]:
                 checks.append({"name": "python", "command": ["python", "-m", "pytest", "-q"], "timeout_seconds": 300, "reason": "Python test files and pytest configuration markers were found."})
             else:
                 frameworks.add("unittest")
-                checks.append({"name": "python", "command": ["python", "-m", "unittest", "discover", "-s", "tests", "-v"], "timeout_seconds": 300, "reason": "Python tests were found; unittest is the standard-library default."})
+                test_root = "tests" if any(name.startswith("tests/") for name in files) else "test"
+                checks.append({"name": "python", "command": ["python", "-m", "unittest", "discover", "-s", test_root, "-v"], "timeout_seconds": 300, "reason": "Python tests were found; unittest is the standard-library default."})
 
     package = _read_json(root / "package.json") if "package.json" in file_set else {}
     if package or any(name.endswith((".js", ".jsx", ".ts", ".tsx")) for name in files):
@@ -105,12 +106,12 @@ def discover_project(root: Path) -> dict[str, Any]:
     if "pom.xml" in file_set:
         languages.add("Java")
         frameworks.add("Maven")
-        command = ["./mvnw", "test"] if "mvnw" in file_set else ["mvn", "test"]
+        command = [("mvnw.cmd" if os.name == "nt" else "./mvnw"), "test"] if "mvnw" in file_set else ["mvn", "test"]
         checks.append({"name": "maven", "command": command, "timeout_seconds": 900, "reason": "pom.xml was found at the project root."})
     elif any(name in file_set for name in ("build.gradle", "build.gradle.kts")):
         languages.add("Java")
         frameworks.add("Gradle")
-        wrapper = "./gradlew" if "gradlew" in file_set else "gradle"
+        wrapper = ("gradlew.bat" if os.name == "nt" else "./gradlew") if "gradlew" in file_set else "gradle"
         checks.append({"name": "gradle", "command": [wrapper, "test"], "timeout_seconds": 900, "reason": "A Gradle build file was found at the project root."})
     if "composer.json" in file_set:
         scripts = _read_json(root / "composer.json").get("scripts", {})
@@ -128,7 +129,8 @@ def _valid_repo_pattern(value: Any, root: Path, *, require_existing: bool) -> st
     pattern = value.strip().replace("\\", "/")
     if not pattern or len(pattern) > 240 or "\x00" in pattern or pattern.startswith("/") or ":" in pattern or pattern in {".", "**"}:
         return None
-    if ".." in [part for part in pattern.split("/") if part]:
+    parts = [part for part in pattern.split("/") if part]
+    if ".." in parts or any(part.startswith(".") for part in parts):
         return None
     if require_existing:
         prefix = pattern.split("*", 1)[0].rstrip("/")
