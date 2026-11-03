@@ -1,0 +1,94 @@
+# Safety Model
+
+NARROW's primary product promise is **not making a user's work less safe**. The default behavior should be conservative, observable, reversible, and honest about uncertainty.
+
+## Protected assets
+
+- The user's original working tree and current branch.
+- Uncommitted user work.
+- Source code, local data, credentials, and environment variables.
+- Correctness and integrity of the task result.
+- The user's ability to inspect and decide before integrating changes.
+
+## Non-negotiable invariants
+
+1. Never start a task when the original checkout is dirty.
+2. Never run the agent in the original checkout.
+3. Never create an implicit unrestricted allowlist.
+4. Never commit, merge, push, deploy, publish, or change remotes automatically.
+5. Never call a task verified solely because an agent process exits with code 0 or says it is done.
+6. Never call checks “passed” unless they ran successfully on the exact current snapshot.
+7. Never hide failed checks, scope violations, monitor failures, or unresolved blockers.
+8. Never silently enable agent permission-bypass flags.
+9. Keep task notes and verification output local; do not send them to a NARROW service.
+10. If NARROW cannot observe a safety-critical condition, fail closed and ask for review.
+
+## Task execution lease (v0.5)
+
+NARROW uses a non-blocking OS file lock per task. A second `drive`, `run`, `resume`, `verify`, or `finish` operation for the same task is refused while the lease is held. The first-level agent and verification child inherit the lock handle; on POSIX this keeps the lease held if the NARROW supervisor exits unexpectedly while the child remains alive. Different task IDs remain independent.
+
+This lease does not confine process permissions and is not a sandbox. A detached descendant that deliberately closes or does not inherit the handle may outlive the lease. If NARROW crashes, inspect active processes and the isolated workspace before restarting. Windows inherited-handle crash behavior remains an explicit validation item.
+
+## Core workspace protections inherited from v0.1
+
+- Separate full Git copy, independent Git metadata, and no configured remotes.
+- Clean-baseline requirement.
+- Required allowlist and optional denylist.
+- Process wrapper with periodic scope and repository-state checks.
+- Best-effort process-group termination on detected violations and command timeouts; check output is streamed with a 64 KiB retained tail.
+- Refusal of symlinks resolving outside the task workspace and hard-linked regular files, with preflight, live, and final scans.
+- NARROW-managed Git calls ignore inherited Git redirection variables and system/global config, and disable repository fsmonitor hooks.
+- No shell interpolation for command execution.
+- Explicit user confirmation for verification commands.
+- Snapshot hashes that invalidate stale test results after edits.
+- Human confirmation with evidence for every acceptance criterion.
+- Bounded repair loop (1–5 attempts); passing checks stop at `READY_FOR_REVIEW`.
+- Initial clone/checkout disables system/global Git configuration and Git LFS smudge downloads to reduce hook/filter side effects.
+- Refuse to follow a symbolic link for `.narrow/`, its state database, or the repository-local Git exclude file.
+- Fingerprint the NARROW-owned task, handoff, and execution-prompt files and stop if an agent edits or removes them.
+
+## Known limitations
+
+A workspace is not an OS-level sandbox. A child process can still access any path and service permitted to the current user. A malicious or misconfigured agent may edit an absolute path outside the workspace, access the network, read environment secrets, start detached processes, or continue work after the wrapper exits. Polling is not instantaneous and can detect a violation only after it begins. A process can write to an absolute path, open a network connection, create and use a link between scans, or launch a detached/escaped process. Process-tree termination is best-effort across operating systems.
+
+For untrusted repositories, agents, commands, or generated code, use a disposable VM or a container with read-only mounts, no host credentials, restricted network, and explicit resource limits. NARROW does not provision that sandbox in v0.2. The Git configuration isolation applies to NARROW-managed Git operations only; it does not constrain arbitrary shell, Python, package-manager, browser, or network activity launched by an agent or check.
+
+## Safe use guidance
+
+- Keep the AI provider's own approval prompts enabled.
+- Do not pass permission-bypass flags.
+- Start with narrow allowed paths.
+- Do not put secrets in task goals, notes, decisions, or acceptance evidence.
+- Configure only test commands you understand.
+- Review `narrow inspect` and the actual diff before integration.
+- Treat every agent-created file, command, and test as untrusted until reviewed.
+- Manually cherry-pick or merge only after review.
+
+## Completion semantics
+
+`VERIFIED_COMPLETE` is deliberately narrow. It means configured checks passed for the exact current snapshot, acceptance criteria were explicitly confirmed by a human, task scope checks passed, and the original checkout remained unchanged. It does **not** mathematically prove correctness, security, performance, or absence of defects. Those claims require appropriate domain-specific tests and review.
+
+## v0.2 provider protections
+
+- Native Claude Code and Codex CLI adapters use documented structured-output interfaces rather than scraping private transcript files.
+- Claude Code runs with the provider's default permission mode, and `--permission-prompts none` prevents unattended print-mode approval prompts from being silently approved.
+- Codex runs with `workspace-write` sandboxing and `--ask-for-approval never` in non-interactive exec mode; permission-requiring actions are not silently approved. NARROW never adds `--yolo` or `--full-auto`.
+- Claude's task-local profile requires the provider's OS shell sandbox, refuses startup/commands if the sandbox is unavailable, disables unsandboxed retries, denies shell reads outside working directories, and starts with a strict network allowlist that is empty by default.
+- Claude's task-local `PreToolUse` hook gates direct Read/Glob/Grep roots to the task copy and checks direct Write/Edit-family targets against the allowlist and denylist, rejecting linked/reserved paths; hook failures block the tool call.
+- Claude MCP servers are disabled for the automated profile, and the built-in tool list excludes WebSearch/WebFetch. This avoids loading user or repository MCP servers into this non-interactive workflow.
+- Common credential files and secret-like environment-variable names are denied to Claude's sandboxed shell subprocesses. This is a finite list/pattern discovery, not a proof that every credential has been found.
+- Claude's `PreCompact` hook writes a fresh local handoff. The Stop hook is telemetry-only and never keeps an agent running behind the user's back.
+- Provider event parsing stores only selected metadata; full prompts, assistant messages, tool inputs, and tool results are not persisted by native adapters.
+- Generic `narrow run` preserves terminal streams; provider JSONL capture is enabled only for the structured adapter.
+
+These protections add an OS-enforced shell boundary for Claude on supported macOS/Linux/WSL2 hosts, but Claude's built-in file tools, hooks, and helper processes remain outside that shell sandbox. The direct file-tool gate and disabled MCP configuration narrow that remaining surface; they do not make NARROW equivalent to a complete disposable VM or container. The Codex profile relies on Codex's own workspace-write sandbox. Neither provider has yet passed a maintainer-run cross-platform security validation matrix.
+
+
+## v0.4 Control Center and modern provider controls
+
+- The Control Center is read-only, binds only to loopback, rejects untrusted Host/Origin values, uses restrictive browser headers, and ships local-only static assets. It is an observability surface, not a remote command interface.
+- Dashboard APIs return sanitized task summaries, path names, check metadata, and event titles/timestamps; they do not return prompts, notes, raw provider output, or raw check logs. Treat the dashboard as local information that may still contain project titles and paths.
+- Claude TaskCreated/TaskCompleted and subagent lifecycle hooks record bounded IDs/types only. User-authored descriptions, task subjects, assistant messages, raw errors, and commands are not persisted by those hooks.
+- Claude Agent/task tools are opt-in and disabled by default. Enabling them does not add a separate sandbox; child agents share task workspace permissions.
+- Effort overrides are validated enum values passed through native provider CLI flags/config. Provider model/account support is authoritative; NARROW does not invent compatibility.
+- Provider version probes invoke only `--version` when explicitly requested.
