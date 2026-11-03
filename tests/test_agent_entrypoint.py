@@ -75,8 +75,10 @@ class AgentEntrypointTests(unittest.TestCase):
 
     def test_only_matching_provider_executable_is_allowed(self):
         self.assertEqual(build_exec_argv("claude", ["claude", "--print"]), ["claude", "--print"])
-        with self.assertRaisesRegex(NarrowError, "does not match"):
+        with self.assertRaisesRegex(NarrowError, "exact selected CLI"):
             build_exec_argv("claude", ["codex", "exec"])
+        with self.assertRaisesRegex(NarrowError, "exact selected CLI"):
+            build_exec_argv("claude", ["/tmp/claude", "--print"])
 
     def test_rejects_shell_and_empty_arguments(self):
         for command in ([], ["claude", ""], ["sh", "-c", "claude"]):
