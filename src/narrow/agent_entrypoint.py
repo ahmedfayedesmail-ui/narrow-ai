@@ -43,8 +43,8 @@ def read_mounted_credential(path: Path) -> str:
             or metadata.st_size > _MAX_CREDENTIAL_BYTES
         ):
             raise NarrowError("Mounted provider credential is not a bounded regular file.")
-        if os.name != "nt" and stat.S_IMODE(metadata.st_mode) & 0o077:
-            raise NarrowError("Mounted provider credential permissions are broader than owner-only.")
+        if os.name != "nt" and stat.S_IMODE(metadata.st_mode) != 0o400:
+            raise NarrowError("Mounted provider credential must be owner-read-only (mode 0400).")
         descriptor = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         try:
             opened = os.fstat(descriptor)
@@ -108,9 +108,9 @@ def build_exec_argv(provider: str, command: Sequence[str]) -> list[str]:
     argv = list(command)
     if any(not isinstance(item, str) or not item or "\x00" in item for item in argv):
         raise NarrowError("Provider CLI arguments must be non-empty strings without NUL bytes.")
-    executable = Path(argv[0]).name.lower()
+    executable = argv[0]
     if executable != _PROVIDER[provider][0]:
-        raise NarrowError("Provider entrypoint refused an executable that does not match the selected provider.")
+        raise NarrowError("Provider entrypoint requires the exact selected CLI name; arbitrary executable paths are refused.")
     return argv
 
 
