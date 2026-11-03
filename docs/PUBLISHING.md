@@ -1,13 +1,14 @@
 # Python package publishing
 
-NARROW v0.5.0 is currently published as a GitHub Alpha release. PyPI publication is deliberately separate and uses PyPI Trusted Publishing (GitHub OIDC); no long-lived PyPI API token is stored in GitHub.
+NARROW v0.5.1 is the corrected packaging Alpha release candidate. The earlier v0.5.0 package was successfully exercised on TestPyPI; its source README was older than the current repository documentation, so production publishing will use v0.5.1. PyPI publication is deliberately separate and uses PyPI Trusted Publishing (GitHub OIDC); no long-lived PyPI API token is stored in GitHub.
 
 ## Current distribution status
 
-- GitHub source release: published as `v0.5.0`.
-- Python distributions: built and validated in CI; not yet published to PyPI.
+- GitHub source release `v0.5.0`: published.
+- TestPyPI `narrow-ai==0.5.0`: upload and clean-index installation succeeded.
+- GitHub/PyPI release candidate: `v0.5.1`; publish to TestPyPI first, then PyPI production.
 - PyPI project name: `narrow-ai`.
-- The exact project JSON endpoints on PyPI and TestPyPI returned 404 when checked on 2026-11-03. Recheck availability immediately before the first publish.
+- The `narrow-ai` project now exists on TestPyPI. The production PyPI project was still not present when last checked; the pending publisher configured by the owner will create it on first successful PyPI upload.
 
 ## One-time publisher configuration
 
@@ -42,7 +43,7 @@ Official setup guides:
 
 1. Open the repository's Actions tab.
 2. Select **Publish Python package**.
-3. Choose the existing tag, initially `v0.5.0`.
+3. Choose the corrected release tag, `v0.5.1`.
 4. Choose `testpypi` first and run the workflow.
 5. Confirm the workflow builds both an sdist and wheel, passes `twine check --strict`, installs the wheel in a clean virtual environment, and publishes successfully.
 6. The workflow then installs the exact version from the selected index in a fresh virtual environment and runs `narrow --version`. A green run therefore covers the index upload and the package installation smoke test.
