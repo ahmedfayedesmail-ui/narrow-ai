@@ -27,6 +27,8 @@ class SandboxTests(unittest.TestCase):
         self.assertIn("--memory", plan.command)
         self.assertIn("--cpus", plan.command)
         self.assertIn("--mount", plan.command)
+        mount = plan.command[plan.command.index("--mount") + 1]
+        self.assertIn(",readonly", mount)
         self.assertEqual(plan.command[-4:], ["python", "-m", "pytest", "-q"])
 
     def test_rejects_invalid_or_missing_image(self):
