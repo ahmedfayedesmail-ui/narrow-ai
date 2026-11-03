@@ -15,6 +15,15 @@ from narrow.container_lifecycle import (
     create_execution_agent_network,
     list_execution_agent_networks,
     cleanup_execution_agent_networks,
+    egress_proxy_container_labels,
+    egress_proxy_container_label_args,
+    list_execution_egress_proxy_containers,
+    cleanup_execution_egress_proxy_containers,
+    egress_uplink_network_labels,
+    egress_uplink_network_label_args,
+    create_execution_egress_uplink_network,
+    list_execution_egress_uplink_networks,
+    cleanup_execution_egress_uplink_networks,
 )
 
 TASK = "task_123"
@@ -193,6 +202,101 @@ class AgentContainerLifecycleTests(unittest.TestCase):
         removals = [call for call in calls if call[1:3] == ["network", "rm"]]
         self.assertEqual(len(removals), 1)
         self.assertEqual(removals[0][-1], "b" * 64)
+
+
+    def test_egress_proxy_labels_are_execution_scoped(self):
+        labels = egress_proxy_container_labels(TASK, EXECUTION)
+        self.assertEqual(labels["io.narrow.component"], "egress-proxy")
+        self.assertEqual(labels["io.narrow.task"], TASK)
+        self.assertEqual(labels["io.narrow.execution"], EXECUTION)
+        self.assertEqual(egress_proxy_container_label_args(TASK, EXECUTION).count("--label"), len(labels))
+
+    def test_lists_and_removes_only_exact_egress_proxy_sidecars(self):
+        sidecar_labels = egress_proxy_container_labels(TASK, EXECUTION)
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            args = command[1:]
+            if args[:3] == ["container", "ls", "--all"]:
+                return run_result(CONTAINER + "\n")
+            if args[:2] == ["container", "inspect"]:
+                return run_result(json.dumps([{
+                    "Id": CONTAINER,
+                    "Name": "/narrow-egress-proxy-test",
+                    "Config": {"Labels": sidecar_labels},
+                    "State": {"Status": "running"},
+                }]))
+            if args[:3] == ["container", "rm", "--force"]:
+                return run_result()
+            raise AssertionError(f"Unexpected engine command: {command}")
+
+        with patch("narrow.container_lifecycle.shutil.which", return_value="/usr/bin/docker"), patch(
+            "narrow.container_lifecycle.subprocess.run", side_effect=fake_run
+        ):
+            self.assertEqual(len(list_execution_egress_proxy_containers("docker", TASK, EXECUTION)), 1)
+            self.assertEqual(cleanup_execution_egress_proxy_containers("docker", TASK, EXECUTION), 1)
+        removals = [call for call in calls if call[1:4] == ["container", "rm", "--force"]]
+        self.assertEqual(len(removals), 1)
+        self.assertEqual(removals[0][-1], CONTAINER)
+
+    def test_egress_uplink_is_created_as_non_internal_bridge(self):
+        network_id = "d" * 64
+        network_name = f"narrow-egress-uplink-{TASK[:24]}-{EXECUTION.replace('-', '')[:12]}"
+        labels = egress_uplink_network_labels(TASK, EXECUTION)
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            args = command[1:]
+            if args[:2] == ["network", "create"]:
+                return run_result(network_id)
+            if args[:2] == ["network", "inspect"]:
+                return run_result(json.dumps([{
+                    "Id": network_id, "Name": network_name, "Driver": "bridge",
+                    "Internal": False, "Labels": labels,
+                }]))
+            raise AssertionError(f"Unexpected engine command: {command}")
+
+        with patch("narrow.container_lifecycle.shutil.which", return_value="/usr/bin/docker"), patch(
+            "narrow.container_lifecycle.subprocess.run", side_effect=fake_run
+        ):
+            result = create_execution_egress_uplink_network("docker", TASK, EXECUTION)
+        self.assertEqual(result.network_id, network_id)
+        create = next(call for call in calls if call[1:3] == ["network", "create"])
+        self.assertNotIn("--internal", create)
+        self.assertIn("io.narrow.component=egress-uplink", create)
+
+    def test_egress_uplink_cleanup_waits_for_sidecar_removal(self):
+        network_id = "e" * 64
+        network_name = f"narrow-egress-uplink-{TASK[:24]}-{EXECUTION.replace('-', '')[:12]}"
+        labels = egress_uplink_network_labels(TASK, EXECUTION)
+        calls = []
+
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            args = command[1:]
+            if args[:3] == ["container", "ls", "--all"]:
+                return run_result("")
+            if args[:3] == ["network", "ls", "--quiet"]:
+                return run_result(network_id + "\n")
+            if args[:2] == ["network", "inspect"]:
+                return run_result(json.dumps([{
+                    "Id": network_id, "Name": network_name, "Driver": "bridge",
+                    "Internal": False, "Labels": labels,
+                }]))
+            if args[:2] == ["network", "rm"]:
+                return run_result()
+            raise AssertionError(f"Unexpected engine command: {command}")
+
+        with patch("narrow.container_lifecycle.shutil.which", return_value="/usr/bin/docker"), patch(
+            "narrow.container_lifecycle.subprocess.run", side_effect=fake_run
+        ):
+            self.assertEqual(len(list_execution_egress_uplink_networks("docker", TASK, EXECUTION)), 1)
+            self.assertEqual(cleanup_execution_egress_uplink_networks("docker", TASK, EXECUTION), 1)
+        removals = [call for call in calls if call[1:3] == ["network", "rm"]]
+        self.assertEqual(len(removals), 1)
+        self.assertEqual(removals[0][-1], network_id)
 
 
 if __name__ == "__main__":
