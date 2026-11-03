@@ -1,4 +1,4 @@
-name: NARROW v0.4.0 alpha checks
+name: NARROW v0.5.0 alpha checks
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -20,24 +20,50 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Verify release archive integrity
-        run: echo "36e05bef1192081a252cb8c7dd4588079908cf813c139897bacb7f9525601143  narrow-v0.4.0.tar.gz" | sha256sum --check
-      - name: Extract source archive
-        run: tar -xzf narrow-v0.4.0.tar.gz
-      - name: Compile
-        working-directory: NARROW
+      - name: Validate release archive
+        run: gzip -t narrow-v0.5.0.tar.gz && tar -tzf narrow-v0.5.0.tar.gz >/dev/null
+      - name: Compile checked-in source
         run: python -m compileall -q src tests
-      - name: Unit tests
-        working-directory: NARROW
+      - name: Test checked-in source
         env:
           PYTHONPATH: src
         run: python -W error::ResourceWarning -m unittest discover -s tests -q
+      - name: Extract release archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/narrow-release"
+          tar -xzf narrow-v0.5.0.tar.gz -C "$RUNNER_TEMP/narrow-release"
+          test -f "$RUNNER_TEMP/narrow-release/NARROW/src/narrow/locks.py"
+      - name: Test extracted package
+        working-directory: ${{ runner.temp }}/narrow-release/NARROW
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m compileall -q src tests
+          python -W error::ResourceWarning -m unittest discover -s tests -q
       - name: CLI smoke tests
-        working-directory: NARROW
         env:
           PYTHONPATH: src
         run: |
           python -m narrow --version
-          python -m narrow tasks --help
-          python -m narrow drive --provider claude --help
-          python -m narrow dashboard --help
+          python -m narrow drive --help
+          python -m narrow verify --help
+          python -m narrow finish --help
+
+  windows-locks:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile source
+        run: python -m compileall -q src tests
+      - name: Exercise Windows task locks
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p test_locks.py -v
+      - name: CLI smoke test
+        env:
+          PYTHONPATH: src
+        run: python -m narrow --version

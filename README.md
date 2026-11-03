@@ -1,40 +1,46 @@
 # NARROW
 
-**AI can start a task. NARROW helps carry it through to a reviewable finish.**
+**AI can start the work. NARROW helps make sure the work is finished safely.**
 
-NARROW is a local-first task continuity and completion supervisor for AI coding agents. It is designed for everyday engineering work where an agent must remember context, stay within an agreed scope, verify its changes, and leave a clear handoff instead of stopping at "done".
+NARROW is a local-first task continuity and completion supervisor for AI coding agents. It combines explicit task contracts, isolated Git copies, provider-native execution, compact cross-session memory, live scope monitoring, bounded repair cycles, evidence-based verification, and a local Control Center.
 
-NARROW works with the coding tools you already use. It does not require a NARROW API key or send your source code to a NARROW-hosted service. Provider sign-in and model usage remain with the provider's own CLI and account.
+It works with the coding agents you already have. NARROW itself does not require an API key or upload source code to a NARROW service. Provider authentication and usage remain with the provider's own CLI and account.
 
-> **v0.4.0 Alpha.** This is experimental software, not a security certification or a guarantee of correct changes. Review the safety boundaries below before using it on valuable repositories.
+> **Alpha software.** NARROW is a supervisor and evidence recorder, not a guarantee that an agent is safe or that a change is correct. Read [SECURITY.md](SECURITY.md) and [the threat model](docs/THREAT_MODEL.md) before using it on valuable repositories.
 
-## What it does
+## What's new in v0.5.0
 
-- **Narrow task contracts:** record the goal, acceptance criteria, permitted paths, and restricted paths before work begins.
-- **Secondhand memory:** preserve decisions, progress, verification evidence, and provider session identifiers in a local SQLite journal. Generate a compact handoff for a fresh session or a different provider.
-- **Keep working to a bounded finish:** run an agent, inspect the resulting diff, execute explicitly approved checks, and permit only a configured number of repair attempts.
-- **Evidence, not self-attestation:** verification is tied to a workspace snapshot. Later changes make old checks stale. Human acceptance remains a separate gate.
-- **Native agent adapters:** use Claude Code or OpenAI Codex CLI, with a generic command adapter also available.
-- **A local Control Center:** inspect task state, scope summaries, acceptance progress, check freshness, and a privacy-minimized activity timeline from a read-only loopback dashboard.
-- **Task portfolio and model controls:** list active tasks and choose provider reasoning effort where the selected model/account supports it.
+- **Single-flight task execution:** NARROW rejects a second agent, repair loop, verification, or finish operation while the same task already has an execution lease.
+- **Inherited lease handle:** the first-level agent/check receives the lock handle. On POSIX, the lease remains held if NARROW exits unexpectedly while that child remains alive.
+- **Public source tree:** implementation and tests are checked in alongside the downloadable archive.
 
-## v0.4.0 release
+This is coordination, not a machine sandbox. Detached descendants may outlive their parent process, and the Windows crash-lifetime path still needs dedicated validation. See [the v0.5 release notes](docs/RELEASE-NOTES-v0.5.0.md).
 
-The complete source, tests, documentation, threat model, safety model, provider notes, and GitHub templates are included in the release archive:
+## What's new in v0.4.0
 
-- [Download NARROW v0.4.0 source archive](./narrow-v0.4.0.tar.gz)
-- [Verify the archive SHA-256](./narrow-v0.4.0.tar.gz.sha256)
-- [Read the changelog](./CHANGELOG.md)
+- **Local Control Center:** responsive, read-only dashboard at `127.0.0.1`, with task state, scope summary, acceptance progress, current/stale checks, and a sanitized activity timeline.
+- **Task portfolio:** `narrow tasks` lists active work; `narrow tasks --all --json` emits a bounded, sanitized task index.
+- **Model effort controls:** `--effort low|medium|high|xhigh` for Claude Code and Codex CLI, plus Claude-only `max` where the selected model/account supports it. Provider model support remains authoritative.
+- **Richer Claude telemetry:** optional Task/Agent tools, task-created/completed and subagent lifecycle hooks, and tool-failure metadata. Subagents require explicit `--allow-subagents` opt-in.
+- **Compatibility diagnostics:** opt-in provider version probing reports when Claude Code should be upgraded for full task/subagent telemetry.
+
+## Core workflow
+
+1. **Define the task.** State the objective, allowed paths, denied paths, and acceptance criteria.
+2. **Create an isolated Git copy.** The original checkout remains untouched by normal agent editing.
+3. **Run an agent.** Use Claude Code, Codex CLI, or a configured generic command adapter.
+4. **Watch scope.** NARROW records file changes and uses provider hooks where available to block selected out-of-scope direct file operations.
+5. **Preserve continuity.** Decisions, progress notes, failures, verification results, and provider session IDs remain in a local SQLite journal. A compact handoff can resume work in a fresh session or another provider.
+6. **Verify and repair.** Explicitly configured checks run under a bounded repair budget. A failure can trigger a limited repair attempt; repeated failure becomes a blocked/review state.
+7. **Require human acceptance.** NARROW does not equate an agent saying “done” or a green test with semantic correctness. A human reviews the diff and confirms acceptance criteria before `finish` can mark the task verified.
 
 ## Install
 
-Requirements: Python 3.11 or newer, Git, and a supported local agent CLI for native provider execution.
+Requirements: Python 3.11+, Git, and a supported local agent CLI for native provider execution.
 
-Download and extract the source archive, then run:
+From a cloned NARROW source checkout:
 
 ```bash
-tar -xzf narrow-v0.4.0.tar.gz
-cd NARROW
 python -m pip install .
 narrow --version
 ```
@@ -46,9 +52,10 @@ python -m pip install -e '.[dev]'
 python -m unittest discover -s tests -v
 ```
 
-## Everyday workflow
 
-Run these commands from the original project checkout:
+## Start a task
+
+Run these commands from the **original project checkout**:
 
 ```bash
 narrow init
@@ -59,68 +66,127 @@ narrow start \
   --allow "tests/checkout/**" \
   --deny "src/checkout/secrets/**" \
   --accept "A retryable timeout is retried at most twice." \
-  --accept "The public API remains unchanged."
+  --accept "The public API and successful checkout behavior remain unchanged."
 ```
 
-Review `.narrow/config.json` and add the exact verification commands you approve. Checks are argv arrays, not shell strings. Then run a provider:
+Edit `.narrow/config.json` and define at least one reviewed verification command. Checks are argv arrays, not shell strings. Example:
+
+```json
+{
+  "checks": {
+    "unit": {
+      "command": ["python", "-m", "pytest", "tests/checkout", "-q"],
+      "timeout_seconds": 300
+    }
+  },
+  "max_repair_attempts": 2
+}
+```
+
+**Review every configured command before approving it.** Verification commands run with your user permissions inside the task copy. They are not sandboxed by NARROW.
+
+## Run a native agent
+
+First, install and authenticate the provider CLI yourself. NARROW never asks for provider credentials.
 
 ```bash
 narrow providers --versions
 narrow doctor --versions
 
-# Claude Code
+# Claude Code (use a reasoning effort supported by the selected model)
 narrow drive --provider claude --effort xhigh --max-attempts 2
 
-# OpenAI Codex CLI
+# Codex CLI
 narrow drive --provider codex --effort high --max-attempts 2
 ```
 
-To inspect, continue, and finish work:
+To explicitly enable Claude Agent/task tools and subagents:
+
+```bash
+narrow drive --provider claude --allow-subagents --effort xhigh
+
+# Higher-autonomy Claude dynamic workflows (requires subagents opt-in)
+narrow drive --provider claude --allow-subagents --ultracode
+```
+
+Subagents share the task workspace and the same user-level process permissions. This option is off by default. It does not create a separate sandbox for each subagent. `--ultracode` is a separate opt-in to Claude Code's dynamic multi-agent workflow mode; it requires `--allow-subagents`, uses the provider's ultracode mode, and cannot be combined with `--effort`. Model/account support remains provider-controlled. Claude effort levels are model/account dependent; Codex reasoning effort is also model dependent. Omit `--effort` to use the provider's own default.
+
+`--max-budget-usd` is a Claude CLI client-side estimate/cap, not a billing guarantee. Codex has no NARROW-compatible per-run USD cap in this release; use the provider's own usage controls.
+
+## Continue work across sessions
 
 ```bash
 narrow tasks
 narrow status --task <task-id>
 narrow handoff --task <task-id>
 narrow resume --task <task-id>
-narrow inspect --task <task-id>
-narrow verify --task <task-id> --check <check-name>
-narrow report --task <task-id> --format markdown --output work-receipt.md
 ```
 
-Completion requires current passing checks, a safe workspace, human-confirmed acceptance criteria, and an unchanged original checkout. NARROW does not treat an agent's message or a green test by itself as proof of semantic correctness.
+A handoff is generated from recorded task state, decisions, progress, changes, and evidence. It is deliberately not a full transcript. Only information explicitly recorded in NARROW can be reliably carried forward.
+
+## Inspect, accept, and finish
+
+```bash
+narrow inspect --task <task-id>
+narrow note --task <task-id> "The failing integration test is caused by the stale token fixture."
+narrow decision --task <task-id> "Keep the public response schema unchanged."
+narrow verify --task <task-id> --check unit
+narrow accept --task <task-id> --criterion 1 --evidence "Reviewed retry test output and implementation diff."
+narrow report --task <task-id> --format markdown --output work-receipt.md
+narrow finish --task <task-id>
+```
+
+A check result is snapshot-bound. Any subsequent workspace change makes the earlier result stale. Completion requires current passing configured checks, human-confirmed acceptance criteria, a safe workspace, and an unchanged original checkout.
 
 ## Local Control Center
 
-Start the local, read-only dashboard:
+Start the read-only dashboard from the original repository:
 
 ```bash
 narrow dashboard
 ```
 
-Open `http://127.0.0.1:8765`. The dashboard binds to loopback, uses local assets, and exposes sanitized read-only summaries. It does not return raw notes, prompts, tool arguments/results, or raw check logs. Stop the server with `Ctrl+C`.
+Open `http://127.0.0.1:8765`. It binds to loopback only, has no remote assets or telemetry, exposes read-only JSON endpoints, and does not return raw notes, prompts, tool outputs, or check logs. It refreshes automatically. Stop it with `Ctrl+C`.
+
+## Supported providers
+
+| Capability | Claude Code | OpenAI Codex CLI |
+|---|---|---|
+| Native command adapter | Yes | Yes |
+| Structured events | `stream-json` | `--json` JSONL |
+| Session continuity | Resume session ID | Resume thread ID |
+| Reasoning effort | `--effort` | `--config model_reasoning_effort=...` |
+| Approval policy | Deny permission prompts in print mode | Non-interactive `--ask-for-approval never` |
+| Execution boundary | Required fail-closed shell sandbox plus NARROW direct-file hooks | Provider `workspace-write` sandbox |
+| Native subagent support in NARROW | Explicit opt-in | Not enabled by NARROW |
+
+The adapters use documented CLI interfaces, not private transcript or database formats. Actual authenticated end-to-end behavior still needs validation against the exact provider CLI and model installed on the user's machine. See [provider details](docs/PROVIDERS.md).
 
 ## Safety boundaries — read before use
 
-NARROW is a supervisor, not an operating-system sandbox.
+- Each task is a separate Git copy without remotes. The source checkout is not edited by normal NARROW agent execution.
+- **A Git copy is not an operating-system sandbox.** Processes launched by NARROW generally inherit the invoking user's OS permissions.
+- Claude's required sandbox applies to its shell commands and children; Claude documents that some other tool/helper activity runs outside this shell boundary. NARROW adds direct-file hooks for a limited documented tool set, not a universal filesystem monitor.
+- Codex uses its own workspace-write sandbox. NARROW does not bypass provider approvals or sandbox controls.
+- Configured verification commands are executable programs. They may have side effects and run with the user's permissions. Review them before approval.
+- Never use unattended mode on untrusted repositories, agents, prompts, hooks, plugins, or checks. Use a disposable container/VM with restricted mounts, network, credentials, resources, and process permissions for stronger isolation.
+- NARROW does not automatically commit, merge, push, publish, deploy, delete, or integrate changes.
+- A model's output, test success, or generated report is not independent proof of correctness. A human must review the actual changes.
 
-- Each task runs in a separate Git copy with remotes removed; normal agent editing does not take place in the original checkout.
-- **Agent and check processes still inherit the invoking user's OS permissions.** An isolated Git copy does not prevent access to other files, processes, services, or network resources.
-- Claude's shell sandbox and Codex's workspace-write sandbox are provider controls. NARROW adds selected direct-file policy hooks for Claude; it is not a universal filesystem or side-effect monitor.
-- Configured verification commands are executable programs. They can have side effects and run with the user's permissions. Review every command before approving it.
-- Claude subagents are disabled by default. When explicitly enabled, they share the task workspace and user-level permissions; they do not get separate containment.
-- NARROW does not automatically commit, merge, push, publish, deploy, or delete work.
-- Never run unattended with untrusted agents, repositories, prompts, hooks, plugins, or checks. For stronger isolation use a disposable container or VM with restricted mounts, credentials, network access, resources, and process permissions.
+See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MODEL.md), and [the security policy](SECURITY.md).
 
-Read `SECURITY.md`, `docs/THREAT_MODEL.md`, and `docs/SAFETY_MODEL.md` in the source archive before using NARROW on valuable work.
+## Current validation
 
-## Validation status
+- Local QA: 79 tests pass on Linux, Python 3.13, Git 2.47.
+- GitHub Actions validates the CI matrix on Ubuntu with Python 3.11–3.14.
+- The local suite uses fakes for provider event and process behavior; it does not substitute for authenticated live Claude/Codex E2E tests.
+- macOS, Windows-native execution, and Android/Termux are not currently claimed as validated platforms.
+- Independent security review and OS-level sandbox validation remain release gates.
 
-The v0.4.0 local QA suite reports **79 passing tests** on Linux with Python 3.13 and Git 2.47. GitHub Actions is configured to validate Python 3.11–3.14 on Ubuntu. The CI matrix is not evidence that every combination or platform has been independently validated.
+## Contributing
 
-Authenticated end-to-end Claude/Codex sessions, macOS, Windows-native execution, Android/Termux, and independent OS-sandbox escape testing remain outstanding. See `docs/QA-RESULTS-v0.4.0.md` for the exact coverage and limitations.
+Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). Safety regressions, privacy leakage, and unbounded execution are release blockers.
 
-## Contributing and license
+## License
 
-Read `CONTRIBUTING.md` and the security policy before opening a change. Safety regressions, privacy leaks, unbounded execution, and misleading security claims are release blockers.
-
-NARROW is distributed under the MIT License; see [LICENSE](./LICENSE).
+MIT — see [LICENSE](LICENSE).
