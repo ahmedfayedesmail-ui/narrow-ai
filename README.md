@@ -1,8 +1,10 @@
 # NARROW
 
+![CI](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/workflows/tests.yml/badge.svg?branch=main)
+
 **AI can start the work. NARROW helps make sure the work is finished safely.**
 
-NARROW is a local-first task continuity and completion supervisor for AI coding agents. It combines explicit task contracts, isolated Git copies, provider-native execution, compact cross-session memory, live scope monitoring, bounded repair cycles, evidence-based verification, and a local Control Center.
+NARROW is a local-first task continuity and completion supervisor for AI coding agents. See the concise [project profile](docs/PROJECT_PROFILE.md) for its purpose, intended users, operating model, and maturity. It combines explicit task contracts, isolated Git copies, provider-native execution, compact cross-session memory, live scope monitoring, bounded repair cycles, evidence-based verification, and a local Control Center.
 
 It works with the coding agents you already have. NARROW itself does not require an API key or upload source code to a NARROW service. Provider authentication and usage remain with the provider's own CLI and account.
 
@@ -12,7 +14,7 @@ It works with the coding agents you already have. NARROW itself does not require
 
 - **Single-flight task execution:** NARROW rejects a second agent, repair loop, verification, or finish operation while the same task already has an execution lease.
 - **Inherited lease handle:** the first-level agent/check receives the lock handle. On POSIX, the lease remains held if NARROW exits unexpectedly while that child remains alive.
-- **Public source tree:** implementation and tests are checked in alongside the downloadable archive.
+- **Public source tree:** source, tests, and documentation are checked in at the repository root; CI builds and tests an exact-commit source archive for each validated release candidate.
 
 This is coordination, not a machine sandbox. Detached descendants may outlive their parent process, and the Windows crash-lifetime path still needs dedicated validation. See [the v0.5 release notes](docs/RELEASE-NOTES-v0.5.0.md).
 
