@@ -18,7 +18,7 @@ class SandboxPlan:
 
 def _validated_options(config: dict[str, Any]) -> tuple[str, str, str, str, int, bool]:
     mode = config.get("mode", "off")
-    if mode not in {"off", "auto", "docker", "podman"}:
+    if not isinstance(mode, str) or mode not in {"off", "auto", "docker", "podman"}:
         raise NarrowError("verification_sandbox.mode must be off, auto, docker, or podman.")
     if mode == "off":
         return mode, "", "", "2", 256, False
@@ -73,15 +73,17 @@ def prepare_sandbox_command(command: list[str], cwd: Path, config: dict[str, Any
         raise NarrowError(f"Container image {image!r} is not present locally. Build or pull it yourself first; NARROW never downloads images.")
     container_name = f"narrow-check-{os.getpid()}-{uuid.uuid4().hex[:10]}"
     workspace_text = str(workspace).replace("\\", "/") if os.name == "nt" else str(workspace)
-    mount_mode = "readonly" if read_only else "rw"
+    mount_spec = f"type=bind,src={workspace_text},dst=/workspace"
+    if read_only:
+        mount_spec += ",readonly"
     argv = [
         engine_path, "run", "--rm", "--name", container_name,
         "--network=none", "--read-only", "--cap-drop=ALL",
         "--security-opt=no-new-privileges:true",
         "--pids-limit", str(pids), "--memory", memory, "--cpus", cpus,
         "--tmpfs", "/tmp:rw,noexec,nosuid,nodev,size=256m",
-        "--mount", f"type=bind,src={workspace_text},dst=/workspace,{mount_mode}",
-        "--workdir", "/workspace", "--env", "PYTHONDONTWRITEBYTECODE=1",
+        "--mount", mount_spec,
+        "--workdir", "/workspace", "--env", "PYTHONDONTWRITEBYTECODE=1", "--env", "HOME=/tmp",
     ]
     if os.name != "nt" and hasattr(os, "getuid") and hasattr(os, "getgid"):
         argv.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
