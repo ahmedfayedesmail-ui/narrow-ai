@@ -22,7 +22,7 @@ def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
         raise NarrowError("The first container launch profile supports Codex only; Claude needs a container-specific settings and hook profile.")
     if (
         not isinstance(command, list)
-        or any(not isinstance(item, str) or not item or "\\x00" in item for item in command)
+        or any(not isinstance(item, str) or not item or "\x00" in item for item in command)
         or len(command) < 9
         or command[:2] != ["codex", "exec"]
         or command[-1] != "-"
@@ -59,7 +59,7 @@ def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
         if cursor + 1 >= len(tokens):
             raise NarrowError("Codex model option is missing its value.")
         model = tokens[cursor + 1]
-        if len(model) > 120 or model.startswith("-") or "/" in model or "\\\\" in model:
+        if len(model) > 120 or model.startswith("-") or "/" in model or "\\" in model:
             raise NarrowError("Codex model value is invalid for container execution.")
         result.extend(["--model", model])
         cursor += 2
