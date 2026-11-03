@@ -1,4 +1,4 @@
-# Product Specification
+# Product Specification — v0.5.0 Alpha
 
 ## Product promise
 
@@ -8,7 +8,7 @@ NARROW makes AI-assisted work **focused, resumable, and verifiable**. It does no
 
 A person who delegates multi-step work to one or more AI agents and needs to keep control of the task, code, decisions, and quality. The first release targets software repositories because Git supplies a practical isolation boundary and tests can provide measurable evidence.
 
-## v0.4 product surface
+## Current product surface (v0.5.0 Alpha)
 
 - Read-only local Control Center on loopback for task portfolio, live status, scope summary, acceptance counts, sanitized events, and snapshot-current check results.
 - `narrow tasks` for bounded human-readable or JSON task listings.
@@ -65,6 +65,12 @@ A person who delegates multi-step work to one or more AI agents and needs to kee
 - Codex uses structured JSONL output, workspace-write sandbox mode, non-interactive `never` approval semantics (no auto-grant), stdin prompts, and resumable thread IDs.
 - Every adapter must disclose supported capabilities and permission mode. No adapter may silently bypass provider approvals or sandbox settings.
 
+## Execution-mode guarantees
+
+NARROW has native provider profiles and a generic command mode; these are not interchangeable security profiles. The Claude profile requires the provider's fail-closed shell sandbox and gates selected direct file/search tools. The Codex profile requests the provider's `workspace-write` sandbox. The generic `--agent` adapter and direct `run`/`resume` wrappers do not get an OS sandbox from NARROW. Configured verification programs also run with the invoking user's OS permissions.
+
+Human review is a real but user-operated CLI workflow: inspect the task state, review the actual diff and untracked files, run reviewed checks, record evidence for each acceptance criterion, and call `finish`. The system can validate recorded evidence and snapshot freshness; it cannot prove the person actually reviewed the code. See [HUMAN_REVIEW.md](HUMAN_REVIEW.md).
+
 ## Product principles
 
 - Local-first and no mandatory API key.
@@ -74,7 +80,7 @@ A person who delegates multi-step work to one or more AI agents and needs to kee
 - Human authority over scope expansion, external effects, and integration.
 - Exact evidence over success messages.
 - Bounded automation over endless agent loops.
-- Useful on a normal developer machine; stronger sandboxing is opt-in until the project can maintain it safely.
+- Useful on a normal developer machine; provider-managed sandboxing is required by the native Claude profile and requested by the native Codex profile, while an outer disposable VM/container remains the recommended boundary for untrusted work. NARROW does not provision or claim that outer boundary in v0.5.0.
 
 ## Success metrics
 
