@@ -236,3 +236,22 @@ This still does not provide abrupt-host-crash recovery: a SIGKILL or host
 failure can bypass Python finalizers. Durable recovery reconciliation and a
 separately managed egress proxy are still required before enabling the agent
 runtime through the standard drive workflow.
+
+
+## Operator-triggered recovery command
+
+A narrow, explicit recovery entry point is available for a task/execution that
+was interrupted by a host crash:
+
+```sh
+narrow recover-agent --task TASK_ID --execution EXECUTION_UUID
+```
+
+It asks for confirmation unless `--yes` is supplied. Recovery targets only
+that task and UUID, removes only containers that pass the full NARROW ownership
+label check, imports the canonical hook spool as untrusted telemetry, revokes
+only valid credential files in that execution's exact credentials directory,
+and removes the internal network only after confirming no matching agent
+container remains. It refuses malformed identities, redirected directories,
+unexpected credential-directory entries, and lingering containers. This
+command is for stale executions only; do not run it against an active agent.
