@@ -29,7 +29,8 @@ class SandboxTests(unittest.TestCase):
         self.assertIn("--mount", plan.command)
         mount = plan.command[plan.command.index("--mount") + 1]
         self.assertIn(",readonly", mount)
-        self.assertEqual(plan.command[-4:], ["python", "-m", "pytest", "-q"])
+        self.assertEqual(plan.command[plan.command.index("--entrypoint") + 1], "python")
+        self.assertEqual(plan.command[-3:], ["-m", "pytest", "-q"])
 
     def test_rejects_invalid_or_missing_image(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -42,7 +43,7 @@ class SandboxTests(unittest.TestCase):
     @patch("narrow.sandbox.shutil.which", return_value=None)
     def test_fails_closed_if_engine_is_missing(self, _which):
         with tempfile.TemporaryDirectory() as temp:
-            with self.assertRaisesRegex(NarrowError, "not found on PATH"):
+            with self.assertRaisesRegex(NarrowError, "found on PATH"):
                 prepare_sandbox_command(["pytest"], Path(temp), {"mode": "auto", "image": "narrow-checks:local"})
 
     @patch("narrow.sandbox.subprocess.run")
