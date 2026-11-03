@@ -341,6 +341,15 @@ def default_config() -> dict[str, Any]:
         # Shell network access in native Claude sessions is deny-by-default.
         # Add only package registries or APIs required by this repository.
         "claude_network_allowed_domains": [],
+        # Optional local container boundary for verification commands. Disabled by default.
+        "verification_sandbox": {
+            "mode": "off",
+            "image": None,
+            "memory": "2g",
+            "cpus": "2",
+            "pids_limit": 256,
+            "workspace_read_only": False,
+        },
     }
 
 
