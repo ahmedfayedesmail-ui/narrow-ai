@@ -72,8 +72,50 @@ def cmd_init(_: argparse.Namespace) -> int:
 
 def cmd_start(args: argparse.Namespace) -> int:
     root = find_repo_root()
+    title = args.title
+    allowed = list(args.allow)
+    denied = list(args.deny)
+    acceptance = list(args.accept)
+
+    if args.ollama and not args.auto_contract:
+        raise NarrowError("--ollama requires --auto-contract.")
+    if args.auto_contract:
+        proposal = propose_contract(
+            root,
+            args.goal,
+            ollama_model=args.model if args.ollama else None,
+        )
+        title = title or proposal["title"]
+        allowed = allowed or proposal["allow"]
+        denied = denied or proposal["deny"]
+        acceptance = acceptance or proposal["accept"]
+        print("NARROW generated a task proposal. Review every path and criterion:")
+        print("Title: " + title)
+        print("Goal: " + args.goal)
+        print("Allowed: " + (", ".join(allowed) or "(none)"))
+        print("Denied: " + (", ".join(denied) or "(none)"))
+        for index, item in enumerate(acceptance, 1):
+            print(f"  {index}. {item}")
+        print("Suggested checks:")
+        for check in proposal["checks"]:
+            print(f"  {check['name']}: {shlex.join(check['command'])}")
+        print("No task has been created yet.")
+        try:
+            answer = input("Create this task with the proposed contract? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in {"y", "yes"}:
+            print("Cancelled. No task was created.")
+            return 1
+
+    if not title:
+        raise NarrowError("Provide --title or use --auto-contract.")
+    if not allowed:
+        raise NarrowError("Provide at least one --allow path or use --auto-contract.")
+    if not acceptance:
+        raise NarrowError("Provide at least one --accept criterion or use --auto-contract.")
     store = Store(root)
-    task = create_task(store, args.title, args.goal, args.allow, args.deny, args.accept)
+    task = create_task(store, title, args.goal, allowed, denied, acceptance)
     print("Task created in an isolated repository copy.")
     print(f"Task: {_task_label(task)}")
     print(f"Isolated workspace: {task['worktree']}")
@@ -647,8 +689,11 @@ def build_parser() -> argparse.ArgumentParser:
     propose.set_defaults(func=cmd_propose)
 
     start = sub.add_parser("start", help="Create a task in an isolated repository copy.")
-    start.add_argument("--title", required=True)
+    start.add_argument("--title", help="Task title. Optional with --auto-contract.")
     start.add_argument("--goal", required=True)
+    start.add_argument("--auto-contract", action="store_true", help="Draft paths and acceptance criteria from the goal, then ask before creating the task.")
+    start.add_argument("--ollama", action="store_true", help="Use a model already running on local Ollama for the contract proposal.")
+    start.add_argument("--model", default="llama3:8b", help="Local Ollama model name (default: llama3:8b).")
     start.add_argument("--allow", action="append", default=[], help="Allowed path glob; repeat for multiple patterns.")
     start.add_argument("--deny", action="append", default=[], help="Denied path glob; repeat for multiple patterns.")
     start.add_argument("--accept", action="append", default=[], help="Acceptance criterion; repeat for multiple criteria.")
