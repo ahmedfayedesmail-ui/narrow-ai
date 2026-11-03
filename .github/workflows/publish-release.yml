@@ -1,0 +1,66 @@
+name: Publish GitHub Alpha release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version to tag and release (for example 0.5.1)
+        required: true
+        type: string
+        default: "0.5.1"
+      authorization:
+        description: Type PUBLISH NARROW 0.5.1 ALPHA to authorize this release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: github-release-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: ${{ github.actor == 'ahmedfayedesmail-ui' && inputs.authorization == format('PUBLISH NARROW {0} ALPHA', inputs.version) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out main
+        uses: actions/checkout@v7.0.1
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Validate version, release notes, and unused tag
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          VERSION="$RELEASE_VERSION"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must use MAJOR.MINOR.PATCH (for example 0.5.1)." >&2
+            exit 1
+          fi
+          TAG="v$VERSION"
+          PROJECT_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
+          test "$PROJECT_VERSION" = "$VERSION"
+          NOTES="docs/RELEASE-NOTES-$TAG.md"
+          test -s "$NOTES"
+          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing tag $TAG" >&2
+            exit 1
+          fi
+          if gh release view "$TAG" --repo ahmedfayedesmail-ui/narrow-ai >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing release $TAG" >&2
+            exit 1
+          fi
+          TARGET="$(git rev-parse HEAD)"
+          echo "Validated $TAG at $TARGET"
+          gh release create "$TAG" \
+            --repo ahmedfayedesmail-ui/narrow-ai \
+            --title "NARROW $TAG Alpha" \
+            --notes-file "$NOTES" \
+            --prerelease \
+            --target "$TARGET"
