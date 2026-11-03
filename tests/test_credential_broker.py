@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import os
+import subprocess
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from narrow.core import NarrowError, Store
-from narrow.credential_broker import issue_credential_lease, revoke_credential_lease
+from narrow.credential_broker import (
+    issue_credential_lease,
+    revoke_credential_lease,
+    validate_credential_lease,
+)
 
 TASK = "task_credential_1"
 EXECUTION = "12345678-1234-4234-8234-123456789abc"
@@ -17,9 +23,9 @@ class CredentialBrokerTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.root = Path(self.temp.name) / "repo"
         self.root.mkdir()
-        os.system(f'git -C "{self.root}" init -q')
-        os.system(f'git -C "{self.root}" config user.email "test@example.invalid"')
-        os.system(f'git -C "{self.root}" config user.name "NARROW tests"')
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(self.root), "config", "user.email", "test@example.invalid"], check=True)
+        subprocess.run(["git", "-C", str(self.root), "config", "user.name", "NARROW tests"], check=True)
         self.store = Store(self.root)
         self.environment = {"ANTHROPIC_API_KEY": "test-secret-value-123456"}
 
@@ -35,10 +41,10 @@ class CredentialBrokerTests(unittest.TestCase):
         self.assertEqual(lease.execution_id, EXECUTION)
         self.assertEqual(lease.path.read_text(encoding="utf-8"), self.environment["ANTHROPIC_API_KEY"])
         self.assertEqual(lease.path.stat().st_nlink, 1)
-        if os.name != "nt":
-            self.assertEqual(lease.path.stat().st_mode & 0o777, 0o400)
-            self.assertEqual(lease.path.parent.stat().st_mode & 0o777, 0o700)
+        self.assertEqual(lease.path.stat().st_mode & 0o777, 0o400)
+        self.assertEqual(lease.path.parent.stat().st_mode & 0o777, 0o700)
         self.assertNotIn(self.environment["ANTHROPIC_API_KEY"], repr(lease))
+        self.assertEqual(validate_credential_lease(lease), lease.path)
         revoke_credential_lease(lease)
         self.assertFalse(lease.path.exists())
 
@@ -66,14 +72,42 @@ class CredentialBrokerTests(unittest.TestCase):
                     environment={"ANTHROPIC_API_KEY": value},
                 )
 
+    def test_expired_lease_is_revoked(self):
+        lease = issue_credential_lease(
+            self.store, "claude", TASK, EXECUTION, environment=self.environment
+        )
+        with self.assertRaisesRegex(NarrowError, "expired and was revoked"):
+            validate_credential_lease(lease, now=lease.expires_at + 1)
+        self.assertFalse(lease.path.exists())
+
+    def test_tampered_lease_is_rejected(self):
+        lease = issue_credential_lease(
+            self.store, "claude", TASK, EXECUTION, environment=self.environment
+        )
+        lease.path.chmod(0o600)
+        lease.path.write_text("tampered", encoding="utf-8")
+        lease.path.chmod(0o400)
+        with self.assertRaisesRegex(NarrowError, "content does not match"):
+            validate_credential_lease(lease)
+        revoke_credential_lease(lease)
+
     def test_revoke_refuses_path_with_wrong_execution_identity(self):
         lease = issue_credential_lease(
             self.store, "claude", TASK, EXECUTION, environment=self.environment
         )
-        from dataclasses import replace
         with self.assertRaisesRegex(NarrowError, "does not match"):
-            revoke_credential_lease(replace(lease, execution_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"))
+            revoke_credential_lease(replace(
+                lease, execution_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+            ))
         revoke_credential_lease(lease)
+
+    def test_revoke_is_idempotent(self):
+        lease = issue_credential_lease(
+            self.store, "claude", TASK, EXECUTION, environment=self.environment
+        )
+        revoke_credential_lease(lease)
+        revoke_credential_lease(lease)
+        self.assertFalse(lease.path.exists())
 
 
 if __name__ == "__main__":
