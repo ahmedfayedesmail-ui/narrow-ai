@@ -137,17 +137,120 @@ jobs:
       - uses: actions/setup-python@v7.1.0
         with:
           python-version: "3.13"
-      - name: Build the reviewed Codex agent image
+      - name: Resolve immutable CI base-image digests
+        id: bases
+        run: |
+          docker pull node:22-bookworm-slim
+          docker pull python:3.12-slim-bookworm
+          echo "NODE_BASE_IMAGE=$(docker image inspect --format='{{index .RepoDigests 0}}' node:22-bookworm-slim)" >> "$GITHUB_OUTPUT"
+          echo "PYTHON_BASE_IMAGE=$(docker image inspect --format='{{index .RepoDigests 0}}' python:3.12-slim-bookworm)" >> "$GITHUB_OUTPUT"
+          grep -Eq '@sha256:[0-9a-f]{64}
+      - name: Start a local OCI registry and publish test images
+        run: |
+          docker run --detach --rm --name narrow-ci-registry -p 5000:5000 registry:2
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
+          docker tag narrow-codex-agent:ci localhost:5000/narrow-codex-agent:ci
+          docker tag narrow-egress-proxy:ci localhost:5000/narrow-egress-proxy:ci
+          docker push localhost:5000/narrow-codex-agent:ci
+          docker push localhost:5000/narrow-egress-proxy:ci
+          echo "NARROW_AGENT_IMAGE=$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-codex-agent:ci)" >> "$GITHUB_ENV"
+          echo "NARROW_PROXY_IMAGE=$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-egress-proxy:ci)" >> "$GITHUB_ENV"
+          test -n "$NARROW_AGENT_IMAGE"
+          test -n "$NARROW_PROXY_IMAGE"
+      - name: Exercise real Docker proxy-only network topology
+        env:
+          NARROW_DOCKER_E2E: "1"
+          PYTHONPATH: src
+        run: python -W error::ResourceWarning -m unittest discover -s tests -p test_container_egress_integration.py -v
+      - name: Remove local test registry
+        if: always()
+        run: docker rm --force narrow-ci-registry || true
+
+  package:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Install built wheel in a clean virtual environment
+        run: |
+          python -m venv "$RUNNER_TEMP/narrow-wheel-venv"
+          "$RUNNER_TEMP/narrow-wheel-venv/bin/python" -m pip install --no-deps dist/*.whl
+          "$RUNNER_TEMP/narrow-wheel-venv/bin/narrow" --version
+ <<< "$(docker image inspect --format='{{index .RepoDigests 0}}' node:22-bookworm-slim)"
+          grep -Eq '@sha256:[0-9a-f]{64}
+      - name: Start a local OCI registry and publish test images
+        run: |
+          docker run --detach --rm --name narrow-ci-registry -p 5000:5000 registry:2
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
+          docker tag narrow-codex-agent:ci localhost:5000/narrow-codex-agent:ci
+          docker tag narrow-egress-proxy:ci localhost:5000/narrow-egress-proxy:ci
+          docker push localhost:5000/narrow-codex-agent:ci
+          docker push localhost:5000/narrow-egress-proxy:ci
+          echo "NARROW_AGENT_IMAGE=$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-codex-agent:ci)" >> "$GITHUB_ENV"
+          echo "NARROW_PROXY_IMAGE=$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-egress-proxy:ci)" >> "$GITHUB_ENV"
+          test -n "$NARROW_AGENT_IMAGE"
+          test -n "$NARROW_PROXY_IMAGE"
+      - name: Exercise real Docker proxy-only network topology
+        env:
+          NARROW_DOCKER_E2E: "1"
+          PYTHONPATH: src
+        run: python -W error::ResourceWarning -m unittest discover -s tests -p test_container_egress_integration.py -v
+      - name: Remove local test registry
+        if: always()
+        run: docker rm --force narrow-ci-registry || true
+
+  package:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Build wheel and source distribution
+        run: |
+          python -m pip install --upgrade build twine
+          python -m build
+          python -m twine check --strict dist/*
+      - name: Install built wheel in a clean virtual environment
+        run: |
+          python -m venv "$RUNNER_TEMP/narrow-wheel-venv"
+          "$RUNNER_TEMP/narrow-wheel-venv/bin/python" -m pip install --no-deps dist/*.whl
+          "$RUNNER_TEMP/narrow-wheel-venv/bin/narrow" --version
+ <<< "$(docker image inspect --format='{{index .RepoDigests 0}}' python:3.12-slim-bookworm)"
+      - name: Build the reviewed Codex agent image from an immutable base
+        env:
+          NODE_BASE_IMAGE: ${{ steps.bases.outputs.NODE_BASE_IMAGE }}
         run: |
           docker build \
-            --build-arg BASE_IMAGE=node:22-bookworm-slim \
+            --build-arg BASE_IMAGE="$NODE_BASE_IMAGE" \
             --build-arg CODEX_VERSION=0.166.0 \
             -f examples/containers/codex-agent.Dockerfile \
             -t narrow-codex-agent:ci .
-      - name: Build the egress proxy image
+      - name: Build the egress proxy image from an immutable base
+        env:
+          PYTHON_BASE_IMAGE: ${{ steps.bases.outputs.PYTHON_BASE_IMAGE }}
         run: |
           docker build \
-            --build-arg BASE_IMAGE=python:3.12-slim-bookworm \
+            --build-arg BASE_IMAGE="$PYTHON_BASE_IMAGE" \
             -f examples/containers/egress-proxy.Dockerfile \
             -t narrow-egress-proxy:ci .
       - name: Start a local OCI registry and publish test images
