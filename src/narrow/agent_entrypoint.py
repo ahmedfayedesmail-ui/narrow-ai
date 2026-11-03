@@ -111,6 +111,40 @@ def build_provider_environment(
     return env
 
 
+def _route_table_has_default_route(ipv4_routes: str, ipv6_routes: str) -> bool:
+    """Return True if either Linux routing table contains a default route."""
+    for line in ipv4_routes.splitlines()[1:]:
+        fields = line.split()
+        if len(fields) >= 4 and fields[1] == "00000000":
+            try:
+                flags = int(fields[3], 16)
+            except ValueError:
+                raise NarrowError("Container IPv4 route table contains malformed route flags.")
+            if flags & 0x1:
+                return True
+    for line in ipv6_routes.splitlines():
+        fields = line.split()
+        if len(fields) >= 10 and fields[0] == "0" * 32 and fields[1] == "00":
+            try:
+                flags = int(fields[8], 16)
+            except ValueError:
+                raise NarrowError("Container IPv6 route table contains malformed route flags.")
+            if flags & 0x1:
+                return True
+    return False
+
+
+def assert_no_default_route() -> None:
+    """Fail closed unless the agent container has no IPv4 or IPv6 default route."""
+    try:
+        ipv4_routes = Path("/proc/net/route").read_text(encoding="ascii")
+        ipv6_routes = Path("/proc/net/ipv6_route").read_text(encoding="ascii")
+    except OSError as exc:
+        raise NarrowError("Could not verify that the agent container has no default network route.") from exc
+    if _route_table_has_default_route(ipv4_routes, ipv6_routes):
+        raise NarrowError("Agent container has a default IPv4/IPv6 route; refusing to start outside the proxy-only network profile.")
+
+
 def build_exec_argv(provider: str, command: Sequence[str]) -> list[str]:
     """Allow only the selected provider CLI as the child executable."""
     if provider not in _PROVIDER:
@@ -141,6 +175,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if command and command[0] == "--":
         command = command[1:]
     try:
+        assert_no_default_route()
         exec_argv = build_exec_argv(args.provider, command)
         credential = read_mounted_credential(args.credential_file)
         proxy_token = read_token_file(args.proxy_token_file)
