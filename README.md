@@ -28,14 +28,14 @@ This is coordination, not a universal machine sandbox. Windows supervised proces
 
 ## Experimental development features on the feature branch
 
-The current development branch adds three opt-in capabilities that are not part of the published v0.5.1 package:
+The current development branch adds four opt-in capabilities that are not part of the published v0.5.1 package:
 
 - Project discovery: narrow discover inspects common project manifests and suggests test commands. It never runs discovered commands. Use narrow discover --apply to review and add new suggestions to .narrow/config.json.
 - Task proposals: narrow propose "Fix the login timeout" drafts a contract without creating a task. Add --ollama to use a model already installed in local Ollama. The model request goes only to 127.0.0.1 and may include a small, bounded selection of source files; it is optional. Every proposed path and criterion requires human review.
 - Containerized verification: setting verification_sandbox.mode to auto, docker, or podman wraps configured checks in a local container with no network, read-only container root, dropped Linux capabilities, no-new-privileges, a PID limit, memory/CPU limits, and only the isolated task workspace mounted. The image must already exist locally; NARROW does not pull images. The default remains off for backward compatibility.
 - **Experimental Codex agent container:** `narrow drive --provider codex --container-agent` uses a digest-pinned agent image and a separate digest-pinned proxy image. The agent joins only an execution-scoped Docker internal network; the CONNECT proxy is dual-homed to that internal network and a separate execution-scoped uplink. No proxy host port is published. The sidecar's labels, network attachments, read-only token mount, no-publish setting, UID/GID, resource limits, and readiness are inspected before the agent starts. This mode is POSIX/local-Docker only and requires an explicit `OPENAI_API_KEY` in the host environment.
 
-For the experimental container profile, build a project-specific image that includes all reviewed test dependencies. The sample under examples/containers is only a small Python/pytest starter. A container runtime and its daemon remain part of the host trust boundary; this is not equivalent to a Firecracker microVM or independent security review.
+Build and pin the agent/proxy images using the recipes and exact requirements in [examples/containers/README.md](examples/containers/README.md). The Docker daemon and host kernel remain trusted infrastructure; this is not equivalent to a Firecracker microVM or independent security review.
 To opt in to the experimental **Codex agent** container mode, add this reviewed configuration to `.narrow/config.json` (replace both digest references with images you built and audited):
 
 ```json
