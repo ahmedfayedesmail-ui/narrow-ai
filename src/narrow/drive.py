@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import subprocess
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,8 @@ from .providers import (
     latest_provider_session_id,
     make_event_callback,
 )
+from .container_egress import run_codex_container_agent
+from .agent_runtime import validate_agent_image
 
 
 def _validate_command(command: Any, label: str) -> list[str]:
@@ -144,12 +147,28 @@ def _drive_task_unlocked(
     allow_subagents: bool = False,
     effort: str | None = None,
     ultracode: bool = False,
+    container_agent: bool = False,
     _lock_fd: int,
 ) -> int:
     task = store.get_task(task_id)
     config = load_config(store.root)
     if (agent_name is None) == (provider is None):
         raise NarrowError("Choose exactly one execution adapter: --provider claude|codex or a configured --agent NAME.")
+    container_settings: dict[str, Any] = {}
+    if container_agent:
+        if provider != "codex" or agent_name is not None:
+            raise NarrowError("--container-agent is supported only with the native --provider codex adapter.")
+        container_settings_value = config.get("agent_container")
+        if not isinstance(container_settings_value, dict):
+            raise NarrowError("Configure agent_container in .narrow/config.json before using --container-agent.")
+        container_settings = container_settings_value
+        agent_image = container_settings.get("image")
+        proxy_image = container_settings.get("proxy_image")
+        allowed_hosts = container_settings.get("egress_allow_hosts")
+        validate_agent_image(agent_image)
+        validate_agent_image(proxy_image)
+        if not isinstance(allowed_hosts, list) or not allowed_hosts or not all(isinstance(host, str) for host in allowed_hosts):
+            raise NarrowError("agent_container.egress_allow_hosts must be a non-empty list of exact provider DNS hostnames.")
     if not isinstance(max_turns, int) or isinstance(max_turns, bool) or not 1 <= max_turns <= 200:
         raise NarrowError("max_turns must be an integer from 1 to 200.")
     if allow_subagents and provider != "claude":
@@ -194,7 +213,7 @@ def _drive_task_unlocked(
             raise NarrowError("NARROW refuses permission-bypass flags in the agent template: " + ", ".join(blocked))
     else:
         selected_adapter = get_adapter(provider)  # Fail before asking to run checks.
-        if not selected_adapter.available():
+        if not container_agent and not selected_adapter.available():
             raise NarrowError(
                 f"{selected_adapter.executable} was not found on PATH. Install and authenticate {selected_adapter.name} separately; NARROW never asks for provider credentials."
             )
@@ -251,6 +270,7 @@ def _drive_task_unlocked(
         "subagents_enabled": allow_subagents,
         "effort": effort,
         "ultracode": ultracode,
+        "execution_mode": "codex-container" if container_agent else "native",
         "checks": list(checks),
     })
     for attempt in range(1, attempts + 1):
@@ -263,7 +283,10 @@ def _drive_task_unlocked(
                 task_id,
                 provider,
                 prompt_path,
-                resume=attempt > 1,
+                # Container executions intentionally get a fresh, isolated
+                # CODEX_HOME per attempt. NARROW's handoff carries repair
+                # context; do not share writable provider state across runs.
+                resume=attempt > 1 and not container_agent,
                 model=model,
                 max_turns=max_turns,
                 max_budget_usd=max_budget_usd,
@@ -278,15 +301,40 @@ def _drive_task_unlocked(
         print(f"\nNARROW drive — attempt {attempt}/{attempts} using '{adapter_label}'")
         print(f"Prompt: {prompt_path}")
         prompt_stdin = prompt_path.read_text(encoding="utf-8") if provider else None
-        exit_code = run_agent(
-            store,
-            task_id,
-            command,
-            resume=attempt > 1,
-            event_callback=callback,
-            stdin_text=prompt_stdin,
-            _lock_fd=_lock_fd,
-        )
+        if container_agent:
+            try:
+                exit_code, container_output = run_codex_container_agent(
+                    store,
+                    task_id,
+                    str(uuid.uuid4()),
+                    command,
+                    agent_image=container_settings["image"],
+                    proxy_image=container_settings["proxy_image"],
+                    allowed_hosts=container_settings["egress_allow_hosts"],
+                    stdin_text=prompt_stdin or "",
+                    event_callback=callback,
+                )
+                if container_output.strip():
+                    print(redact(container_output[-6000:]))
+            except NarrowError as exc:
+                store.update_status(task_id, "NEEDS_REVIEW")
+                store.add_event(task_id, "DRIVE_STOPPED", {
+                    "reason": str(exc),
+                    "attempt": attempt,
+                    "adapter": adapter_label,
+                    "execution_mode": "codex-container",
+                })
+                raise
+        else:
+            exit_code = run_agent(
+                store,
+                task_id,
+                command,
+                resume=attempt > 1,
+                event_callback=callback,
+                stdin_text=prompt_stdin,
+                _lock_fd=_lock_fd,
+            )
         if exit_code != 0:
             store.update_status(task_id, "NEEDS_REVIEW")
             store.add_event(task_id, "DRIVE_STOPPED", {"reason": "Agent exited or was interrupted before the verification cycle.", "attempt": attempt, "exit_code": exit_code, "adapter": adapter_label})
@@ -349,6 +397,7 @@ def drive_task(
     allow_subagents: bool = False,
     effort: str | None = None,
     ultracode: bool = False,
+    container_agent: bool = False,
 ) -> int:
     """Run the bounded drive loop while holding the task execution lease."""
     with task_execution_lock(store.state_dir, task_id) as lock_fd:
@@ -357,5 +406,5 @@ def drive_task(
             max_turns=max_turns, max_attempts=max_attempts,
             max_budget_usd=max_budget_usd, yes_checks=yes_checks,
             allow_subagents=allow_subagents, effort=effort,
-            ultracode=ultracode, _lock_fd=lock_fd,
+            ultracode=ultracode, container_agent=container_agent, _lock_fd=lock_fd,
         )
