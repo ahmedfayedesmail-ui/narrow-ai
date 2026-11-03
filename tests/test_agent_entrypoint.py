@@ -91,12 +91,12 @@ class AgentEntrypointTests(unittest.TestCase):
 
 
     def test_agent_network_requires_no_ipv4_or_ipv6_default_route(self):
-        safe_ipv4 = "Iface Destination Gateway Flags RefCnt Use Metric Mask\\neth0 0000000A 00000000 00000001 0 0 0 00FFFFFF\\n"
+        safe_ipv4 = "Iface Destination Gateway Flags RefCnt Use Metric Mask\neth0 0000000A 00000000 00000001 0 0 0 00FFFFFF\n"
         safe_ipv6 = ""
         self.assertFalse(_route_table_has_default_route(safe_ipv4, safe_ipv6))
-        default_ipv4 = safe_ipv4 + "eth0 00000000 01001AAC 00000001 0 0 0 00000000\\n"
+        default_ipv4 = safe_ipv4 + "eth0 00000000 01001AAC 00000001 0 0 0 00000000\n"
         self.assertTrue(_route_table_has_default_route(default_ipv4, safe_ipv6))
-        default_ipv6 = "0" * 32 + " 00 " + "0" * 32 + " 00000000 00000000 00000000 00000001 00000000 00000000 00000000\\n"
+        default_ipv6 = "0" * 32 + " 00 " + "0" * 32 + " 00 " + "0" * 32 + " 00000000 00000000 00000000 00000001 eth0\n"
         self.assertTrue(_route_table_has_default_route(safe_ipv4, default_ipv6))
 
 
