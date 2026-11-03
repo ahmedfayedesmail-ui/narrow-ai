@@ -303,18 +303,18 @@ def provision_execution_egress_proxy(
     root = _execution_root(store, task_id, execution_id)
     if list_execution_egress_proxy_containers("docker", task_id, execution_id):
         raise NarrowError("An egress proxy sidecar already exists for this execution; refusing to replace it.")
-    agent_networks = list_execution_agent_networks("docker", task_id, execution_id)
-    if len(agent_networks) > 1:
-        raise NarrowError("Multiple internal agent networks exist for this execution.")
-    uplinks = list_execution_egress_uplink_networks("docker", task_id, execution_id)
-    if len(uplinks) > 1:
-        raise NarrowError("Multiple egress uplink networks exist for this execution.")
-    agent_network = agent_networks[0] if agent_networks else create_execution_agent_network("docker", task_id, execution_id)
-    uplink_network = uplinks[0] if uplinks else create_execution_egress_uplink_network("docker", task_id, execution_id)
     token, token_path = _token_file(root)
     container_name = f"narrow-egress-proxy-{task_id[:20]}-{_validate_execution_id(execution_id).replace('-', '')[:12]}"
     created_id = ""
     try:
+        agent_networks = list_execution_agent_networks("docker", task_id, execution_id)
+        if len(agent_networks) > 1:
+            raise NarrowError("Multiple internal agent networks exist for this execution.")
+        uplinks = list_execution_egress_uplink_networks("docker", task_id, execution_id)
+        if len(uplinks) > 1:
+            raise NarrowError("Multiple egress uplink networks exist for this execution.")
+        agent_network = agent_networks[0] if agent_networks else create_execution_agent_network("docker", task_id, execution_id)
+        uplink_network = uplinks[0] if uplinks else create_execution_egress_uplink_network("docker", task_id, execution_id)
         command = [
             "run", "--detach", "--rm",
             "--name", container_name,
