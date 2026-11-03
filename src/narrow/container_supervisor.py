@@ -10,7 +10,15 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .container_lifecycle import agent_container_labels, cleanup_execution_agent_containers, cleanup_execution_agent_networks, list_execution_agent_containers, list_execution_agent_networks
+from .container_lifecycle import (
+    agent_container_labels,
+    cleanup_execution_agent_containers,
+    cleanup_execution_agent_networks,
+    cleanup_execution_egress_proxy_containers,
+    cleanup_execution_egress_uplink_networks,
+    list_execution_agent_containers,
+    list_execution_agent_networks,
+)
 from .core import NarrowError, Store, task_workspace
 from .policy_manifest import _validate_execution_id
 from .agent_runtime import normalize_provider_argv, validate_agent_image
@@ -448,8 +456,14 @@ def _run_container_agent(
                 cleanup_errors.append(f"hook-import:{type(exc).__name__}")
 
         try:
+            cleanup_execution_egress_proxy_containers("docker", task_id, expected_execution)
+        except Exception as exc:
+            cleanup_errors.append(f"egress-proxy-cleanup:{type(exc).__name__}")
+
+        try:
             remaining = list_execution_agent_containers("docker", task_id, expected_execution)
             if not remaining:
+                cleanup_execution_egress_uplink_networks("docker", task_id, expected_execution)
                 cleanup_execution_agent_networks("docker", task_id, expected_execution)
             else:
                 cleanup_errors.append("network-preserved-agent-container-still-exists")
