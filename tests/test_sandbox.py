@@ -62,8 +62,8 @@ class SandboxTests(unittest.TestCase):
                 cache_scope="task_123",
             )
         mounts = [plan.command[i + 1] for i, part in enumerate(plan.command[:-1]) if part == "--mount"]
-        self.assertTrue(any("dst=/narrow-cache/pip,rw" in mount for mount in mounts))
-        self.assertTrue(any("dst=/narrow-cache/npm,rw" in mount for mount in mounts))
+        self.assertTrue(any("dst=/narrow-cache/pip" in mount and "readonly" not in mount for mount in mounts))
+        self.assertTrue(any("dst=/narrow-cache/npm" in mount and "readonly" not in mount for mount in mounts))
         self.assertIn("PIP_CACHE_DIR=/narrow-cache/pip", plan.command)
         self.assertIn("npm_config_cache=/narrow-cache/npm", plan.command)
         self.assertNotIn(str(Path.home()), " ".join(plan.command))
