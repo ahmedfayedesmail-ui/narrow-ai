@@ -213,8 +213,7 @@ attempts exact-label container cleanup after completion, timeout, callback
 failure, or interruption. It is POSIX/local-Docker only. It does not yet launch
 or supervise the egress proxy, import the container event spool, clean the
 per-execution network, reconcile after an abrupt host crash, or connect to the
-normal `narrow drive` loop. The caller must provision the task-scoped home
-directory before invoking it. This is a supervision primitive, not a complete
+normal `narrow drive` loop. The supervisor provisions the task-scoped home directory before mounting it. This is a supervision primitive, not a complete
 agent runtime or an enabled end-to-end sandbox.
 
 
