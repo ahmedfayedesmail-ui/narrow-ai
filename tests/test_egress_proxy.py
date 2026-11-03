@@ -245,16 +245,20 @@ class EgressProxyPolicyTests(unittest.TestCase):
 
 
     def test_container_private_listener_is_explicit_and_host_wildcard_stays_refused(self):
+        probe = socket.socket()
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+        probe.close()
         with self.assertRaises(ProxyPolicyError):
             EgressProxy(ProxyConfig(
                 bind_host="0.0.0.0",
-                port=0,
+                port=port,
                 allowed_hosts=frozenset({"api.anthropic.com"}),
                 token="x" * 48,
             ))
         proxy = EgressProxy(ProxyConfig(
             bind_host="0.0.0.0",
-            port=0,
+            port=port,
             allowed_hosts=frozenset({"api.anthropic.com"}),
             token="x" * 48,
             container_private_listener=True,
@@ -268,7 +272,7 @@ class EgressProxyPolicyTests(unittest.TestCase):
         with self.assertRaisesRegex(ProxyPolicyError, "exact 0.0.0.0"):
             EgressProxy(ProxyConfig(
                 bind_host="127.0.0.1",
-                port=0,
+                port=3128,
                 allowed_hosts=frozenset({"api.anthropic.com"}),
                 token="x" * 48,
                 container_private_listener=True,
