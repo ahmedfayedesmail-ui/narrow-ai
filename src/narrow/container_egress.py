@@ -26,6 +26,7 @@ from .container_lifecycle import (
     create_execution_agent_network,
     create_execution_egress_uplink_network,
     egress_proxy_container_label_args,
+    egress_proxy_container_labels,
     list_execution_agent_containers,
     list_execution_agent_networks,
     list_execution_egress_proxy_containers,
@@ -134,6 +135,7 @@ def remove_execution_proxy_token_file(store: Store, task_id: str, execution_id: 
             metadata = directory.lstat()
             if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
                 raise NarrowError("Proxy capability path contains a link or non-directory.")
+        store._check_state_paths()
         metadata = path.lstat()
         if (
             stat.S_ISLNK(metadata.st_mode)
@@ -141,6 +143,7 @@ def remove_execution_proxy_token_file(store: Store, task_id: str, execution_id: 
             or metadata.st_nlink != 1
             or stat.S_IMODE(metadata.st_mode) != 0o400
             or metadata.st_size > 256
+            or metadata.st_uid != os.getuid()
         ):
             raise NarrowError("Refusing to remove an unsafe proxy capability file.")
         path.unlink()
@@ -220,14 +223,7 @@ def _verify_sidecar(
 ) -> str:
     config = inspected.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
-    expected_labels = dict(
-        item.split("=", 1)
-        for item in (
-            egress_proxy_container_label_args(task_id, execution_id)[i + 1]
-            for i, value in enumerate(egress_proxy_container_label_args(task_id, execution_id))
-            if value == "--label"
-        )
-    )
+    expected_labels = egress_proxy_container_labels(task_id, execution_id)
     if not isinstance(labels, dict) or any(labels.get(key) != value for key, value in expected_labels.items()):
         raise NarrowError("Egress proxy sidecar does not carry exact NARROW execution ownership labels.")
     if not isinstance(config, dict) or config.get("Image") != image:
@@ -292,6 +288,8 @@ def provision_execution_egress_proxy(
         raise NarrowError("The first egress sidecar profile refuses root-owned host execution.")
     pinned_image = validate_agent_image(image)
     allowed = tuple(sorted(normalize_allowlist(allowed_hosts)))
+    if _docker(["context", "show"], timeout=5) != "default":
+        raise NarrowError("Egress sidecar provisioning requires the local default Docker context.")
     root = _execution_root(store, task_id, execution_id)
     if list_execution_egress_proxy_containers("docker", task_id, execution_id):
         raise NarrowError("An egress proxy sidecar already exists for this execution; refusing to replace it.")
