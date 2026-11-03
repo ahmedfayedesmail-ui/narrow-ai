@@ -211,8 +211,10 @@ def _extract_client_hello_sni(message: bytes) -> str:
     if len(message) < 4 or message[0] != 1:
         raise ProxyPolicyError("Only TLS ClientHello handshakes are accepted.")
     declared = int.from_bytes(message[1:4], "big")
-    if declared > 32 * 1024 or len(message) < declared + 4:
-        raise ProxyPolicyError("TLS ClientHello is malformed or exceeds the size limit.")
+    # The first handshake message must be exactly one ClientHello. Do not
+    # silently ignore and forward trailing handshake bytes outside its bounds.
+    if declared > 32 * 1024 or len(message) != declared + 4:
+        raise ProxyPolicyError("TLS ClientHello length is inconsistent or exceeds the size limit.")
     body = memoryview(message)[4:4 + declared]
     cursor = 0
     if len(body) < 34:
