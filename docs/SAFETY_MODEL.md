@@ -27,7 +27,7 @@ NARROW's primary safety objective is to reduce accidental damage and make uncert
 
 NARROW uses a non-blocking OS file lock per task. A second `drive`, `run`, `resume`, `verify`, or `finish` operation for the same task is refused while the lease is held. The first-level agent and verification child inherit the lock handle; on POSIX this keeps the lease held if the NARROW supervisor exits unexpectedly while the child remains alive. Different task IDs remain independent.
 
-This lease does not confine process permissions and is not a sandbox. A detached descendant that deliberately closes or does not inherit the handle may outlive the lease. If NARROW crashes, inspect active processes and the isolated workspace before restarting. Windows inherited-handle crash behavior remains an explicit validation item.
+This lease does not confine process permissions and is not a sandbox. A detached descendant that deliberately closes or does not inherit the handle may outlive the lease. On Windows, the separate Job Object kill-on-close mechanism is intended to terminate ordinary job members if the supervisor exits; its forced-termination behavior remains subject to Windows adversarial validation.
 
 ## Core workspace protections inherited from v0.1
 
@@ -124,13 +124,13 @@ The wrapper is applied to verification commands only. It does not wrap the AI pr
 
 Project auto-discovery reads manifests and file names but never executes suggested test commands. Contract proposals from Ollama are sent only to the local loopback endpoint and may include a bounded selection of project source files. Proposals never create a task or approve paths automatically; a human must review and confirm them.
 
-External provider plugins are imported Python code from the user's environment. They are trusted extensions, not a security sandbox. The dashboard intentionally remains read-only until an authenticated mutation design has been reviewed. Windows inherited-handle crash lifetime and process containment are not claimed as validated by this branch.
+External provider plugins are imported Python code from the user's environment. They are trusted extensions, not a security sandbox. The dashboard intentionally remains read-only until an authenticated mutation design has been reviewed. Windows atomic Job membership is implemented for supported Windows versions, but process-tree crash containment is not claimed as validated until the Windows hard-kill and descendant tests run.
 
 
 ## Feature-branch hardening notes
 
 - The dashboard still has no mutation routes. A random per-launch token is now required on JSON API requests; the browser receives it through a URL fragment, stores it in sessionStorage, and sends it in `X-NARROW-Token`. Host and Origin checks remain in place. A valid token does not enable POST/PUT/DELETE.
-- On Windows, the first-level process launched by the supervisor is assigned to a non-inheritable Job Object with kill-on-close enabled. Assignment follows process creation, so there is a small startup race; breakaway jobs and daemon-managed external containers are not guaranteed to be covered. Full crash adversarial testing is still a release gate.
+- On Windows 10 / Windows Server 2016 and newer, the first-level process is created with `PROC_THREAD_ATTRIBUTE_JOB_LIST`, so Job membership is established by the same `CreateProcessW` call rather than by a post-creation assignment. The non-inheritable Job handle uses kill-on-close; ordinary descendants inherit membership unless they use a permitted breakaway mechanism (none is enabled here). Unsupported/incompatible Job setups fail closed. Broker-created processes and daemon-managed external containers are not guaranteed to be covered. Forced-termination and deep-descendant Windows tests remain a release gate.
 - Verification records are HMAC-SHA256 signed with a local per-project key kept outside the task worktree in the user's NARROW cache. The signature binds the saved output digest, command, exit code, duration, timestamp, and snapshot. This detects SQLite-only tampering but cannot defeat a compromised same-user host or a stolen/replaced key.
 - Contract proposals and human-approved contracts are recorded as separate versions with field-level differences. Active task contracts remain immutable; changing scope requires a new task.
 - Optional package-manager caches are private and task-scoped. NARROW does not mount the developer's home package-manager caches or credential directories.
