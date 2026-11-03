@@ -9,6 +9,7 @@ from .core import NarrowError
 from .container_lifecycle import agent_container_label_args
 from .credential_broker import CredentialLease, validate_credential_lease
 from .policy_manifest import _validate_execution_id, read_policy_manifest
+from .egress_proxy import read_token_file
 
 _IMAGE_DIGEST = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,180}@sha256:[0-9a-f]{64}$")
 _SESSION_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
@@ -120,7 +121,7 @@ def build_docker_agent_command(
     credential_lease: CredentialLease,
     task_id: str,
     execution_id: str,
-    proxy_token: str,
+    proxy_token_path: Path | str,
     uid: int | None = None,
     gid: int | None = None,
 ) -> list[str]:
@@ -162,23 +163,28 @@ def build_docker_agent_command(
         expected_execution_id=execution,
     )
     secret = _validated_mount_source(secret_path, directory=False)
+    proxy_secret = _validated_mount_source(proxy_token_path, directory=False)
+    expected_proxy_secret = (
+        Path(credential_lease.state_dir)
+        / "runtime" / "agent" / task_id / execution / "proxy.token"
+    )
+    if Path(proxy_secret) != expected_proxy_secret.resolve(strict=True):
+        raise NarrowError("Docker agent proxy capability must be the exact task/execution-scoped token file.")
+    read_token_file(Path(proxy_secret))
     if os.name != "nt":
         secret_metadata = Path(secret).stat()
+        proxy_metadata = Path(proxy_secret).stat()
         home_metadata = Path(task_home).stat()
         if stat.S_IMODE(secret_metadata.st_mode) != 0o400:
             raise NarrowError("Docker provider credential mount must have owner-read-only mode 0400.")
-        if secret_metadata.st_uid != uid or home_metadata.st_uid != uid:
-            raise NarrowError("Docker agent UID must own the private credential and task-home mounts.")
-    if (
-        not isinstance(proxy_token, str)
-        or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", proxy_token)
-    ):
-        raise NarrowError("Docker agent requires a bounded URL-safe per-execution egress capability token.")
+        if stat.S_IMODE(proxy_metadata.st_mode) != 0o400:
+            raise NarrowError("Docker proxy capability mount must have owner-read-only mode 0400.")
+        if secret_metadata.st_uid != uid or proxy_metadata.st_uid != uid or home_metadata.st_uid != uid:
+            raise NarrowError("Docker agent UID must own the private credential, proxy capability, and task-home mounts.")
 
     normalized_provider = normalize_provider_argv("codex", provider_command)
     network = f"narrow-agent-{task_id[:32]}-{execution.replace('-', '')[:12]}"
     container_name = f"narrow-agent-{task_id[:24]}-{execution.replace('-', '')[:12]}"
-    proxy_url = f"http://narrow:{proxy_token}@narrow-egress-proxy:3128"
     spool = "/home/narrow/.local/state/narrow/hook-events.jsonl"
 
     command = [
@@ -201,15 +207,12 @@ def build_docker_agent_command(
         "--mount", f"type=bind,source={task_home},target=/home/narrow",
         "--mount", f"type=bind,source={manifest},target=/run/narrow/policy.json,readonly",
         "--mount", f"type=bind,source={secret},target=/run/secrets/provider-api-key,readonly",
+        "--mount", f"type=bind,source={proxy_secret},target=/run/secrets/proxy-token,readonly",
     ]
     command.extend(agent_container_label_args(task_id, execution))
     for key, value in (
         ("HOME", "/home/narrow"),
         ("LANG", "C.UTF-8"),
-        ("HTTP_PROXY", proxy_url),
-        ("HTTPS_PROXY", proxy_url),
-        ("http_proxy", proxy_url),
-        ("https_proxy", proxy_url),
         ("NO_PROXY", "localhost,127.0.0.1"),
         ("no_proxy", "localhost,127.0.0.1"),
         ("NARROW_POLICY_MANIFEST", "/run/narrow/policy.json"),
@@ -224,6 +227,7 @@ def build_docker_agent_command(
         "-m", "narrow.agent_entrypoint",
         "--provider", "codex",
         "--credential-file", "/run/secrets/provider-api-key",
+        "--proxy-token-file", "/run/secrets/proxy-token",
         "--",
         *normalized_provider,
     ])
