@@ -99,16 +99,26 @@ session storage, and sent in the `X-NARROW-Token` header. API requests also
 retain loopback Host and same-origin checks. POST/PUT/DELETE remain disabled
 even with a valid token; this is not a write-mode dashboard.
 
-On Windows, supervised direct child processes are assigned to a Job Object
-configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. If NARROW exits after
-assignment, Windows closes the non-inherited Job handle and terminates
-processes already associated with it. Assignment currently happens immediately
-after Python's process creation call returns; that leaves a small startup race
-before assignment, and a child deliberately created with breakaway semantics
-may escape. This branch does not claim the full Windows crash-lifetime gate is
-closed until adversarial Windows CI validates those cases. A Docker daemon
-container also has its own lifecycle and is not controlled solely by a
-Windows Job Object around the Docker CLI.
+On Windows, the supervised agent and verification children are created
+with `CREATE_SUSPENDED`. NARROW creates a non-inheritable Job Object with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, assigns the still-suspended process,
+checks membership with `IsProcessInJob`, and only then resumes its primary
+thread. The launcher deliberately does not use `CREATE_BREAKAWAY_FROM_JOB`:
+that flag requests escape from the parent Job rather than containment.
+Ordinary descendants created with `CreateProcess` inherit Job membership
+because this Job does not enable either breakaway limit. Setup failures are
+fail-closed and terminate the suspended process/assigned Job.
+
+This closes the child-execution window between process creation and Job
+assignment: the child cannot run application code or create descendants before
+it is assigned. There remains a narrow resource-cleanup limitation if NARROW
+itself is forcibly terminated after the suspended process is created but
+before assignment completes: that process may remain suspended and inert rather
+than being attached to the Job. Windows Job assignment also cannot contain
+broker-created processes that are not created as descendants through ordinary
+`CreateProcess`, nor does it itself terminate daemon-managed Docker
+containers. Adversarial Windows CI is still required before claiming complete
+crash-lifetime containment.
 
 Verification rows now carry an HMAC-SHA256 signature over the task, check name,
 snapshot, command, result, duration, timestamp, and digest of the retained
