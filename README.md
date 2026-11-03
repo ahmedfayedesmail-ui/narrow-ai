@@ -36,7 +36,7 @@ The current development branch adds three opt-in capabilities that are not part 
 
 For the experimental container profile, build a project-specific image that includes all reviewed test dependencies. The sample under examples/containers is only a small Python/pytest starter. A container runtime and its daemon remain part of the host trust boundary; this is not equivalent to a Firecracker microVM or independent security review.
 
-Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md.
+Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md and docs/SANDBOXING.md for installation, configuration, and safety details.
 
 The dashboard remains read-only. Mutation controls are intentionally not exposed on an unauthenticated local HTTP server. Windows process/job lifetime validation, microVM support, turnkey framework-specific plugins, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
 
