@@ -264,18 +264,28 @@ def _verify_sidecar(
         or host.get("Devices") not in (None, [])
         or host.get("Binds") not in (None, [])
         or host.get("NetworkMode") != uplink_network.name
+        or host.get("Tmpfs") != {"/tmp": "rw,noexec,nosuid,nodev,size=32m,mode=1777"}
     ):
         raise NarrowError("Egress proxy sidecar violates NARROW's no-publish, read-only, least-privilege profile.")
     mounts = inspected.get("Mounts")
+    if not isinstance(mounts, list):
+        raise NarrowError("Egress proxy sidecar mount inspection is missing.")
+    bind_mounts = [item for item in mounts if isinstance(item, dict) and item.get("Type") == "bind"]
+    tmpfs_mounts = [item for item in mounts if isinstance(item, dict) and item.get("Type") == "tmpfs"]
+    other_mounts = [
+        item for item in mounts
+        if not isinstance(item, dict) or item.get("Type") not in {"bind", "tmpfs"}
+    ]
     if (
-        not isinstance(mounts, list)
-        or len(mounts) != 1
-        or not isinstance(mounts[0], dict)
-        or mounts[0].get("Destination") != "/run/secrets/proxy-token"
-        or mounts[0].get("RW") is not False
-        or Path(str(mounts[0].get("Source", ""))).resolve() != token_path.resolve()
+        len(bind_mounts) != 1
+        or bind_mounts[0].get("Destination") != "/run/secrets/proxy-token"
+        or bind_mounts[0].get("RW") is not False
+        or Path(str(bind_mounts[0].get("Source", ""))).resolve() != token_path.resolve()
+        or len(tmpfs_mounts) != 1
+        or tmpfs_mounts[0].get("Destination") != "/tmp"
+        or other_mounts
     ):
-        raise NarrowError("Egress proxy sidecar must receive only the exact read-only capability-file mount.")
+        raise NarrowError("Egress proxy sidecar must receive only its read-only token bind and bounded /tmp tmpfs.")
     network_settings = inspected.get("NetworkSettings")
     networks = network_settings.get("Networks") if isinstance(network_settings, dict) else None
     if not isinstance(networks, dict) or set(networks) != {agent_network.name, uplink_network.name}:
