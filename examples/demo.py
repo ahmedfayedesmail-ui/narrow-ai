@@ -74,6 +74,12 @@ def main() -> int:
         "Path('src/app.py').write_text(f'VALUE = {value}\\n', encoding='utf-8')\n",
         encoding="utf-8",
     )
+    # Keep the demo's own NARROW state out of its disposable fixture's Git status
+    # on every supported Git platform; NARROW also installs its repo-local exclude.
+    (project / ".gitignore").write_text(
+        "/.narrow/\n/NARROW_TASK.md\n/NARROW_HANDOFF.md\n/NARROW_PROMPT.md\n__pycache__/\n",
+        encoding="utf-8",
+    )
     git(project, "init", "-b", "main")
     git(project, "config", "user.name", "NARROW Demo")
     git(project, "config", "user.email", "narrow-demo@example.invalid")
