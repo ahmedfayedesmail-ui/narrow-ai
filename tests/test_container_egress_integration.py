@@ -46,7 +46,7 @@ class ContainerEgressDockerE2ETests(unittest.TestCase):
             git(root, "config", "user.name", "NARROW Docker E2E")
             git(root, "config", "user.email", "narrow-docker-e2e@example.invalid")
             (root / "src").mkdir()
-            (root / "src" / "sample.py").write_text("VALUE = 1\\n", encoding="utf-8")
+            (root / "src" / "sample.py").write_text("VALUE = 1\n", encoding="utf-8")
             git(root, "add", ".")
             git(root, "commit", "-m", "initial project")
             init_project(root)
@@ -109,7 +109,7 @@ print("proxy-only egress smoke passed")
                     command, stdin=subprocess.DEVNULL, capture_output=True,
                     text=True, timeout=45, shell=False, check=False,
                 )
-                self.assertEqual(result.returncode, 0, result.stdout + "\\n" + result.stderr)
+                self.assertEqual(result.returncode, 0, result.stdout + "\n" + result.stderr)
                 self.assertIn("proxy-only egress smoke passed", result.stdout)
             finally:
                 cleanup_execution_egress_proxy_containers("docker", task["id"], execution_id)
