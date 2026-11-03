@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import json
+import unittest
 from unittest.mock import patch
-
-import pytest
 
 from narrow.core import NarrowError
 from narrow.container_lifecycle import (
@@ -37,82 +36,81 @@ def run_result(stdout="", returncode=0, stderr=""):
     return result
 
 
-def mock_engine_calls(monkeypatch, inspect_payload=None, ids=CONTAINER):
-    monkeypatch.setattr("narrow.container_lifecycle.shutil.which", lambda name: f"/usr/bin/{name}")
-    calls = []
+class AgentContainerLifecycleTests(unittest.TestCase):
+    def mock_engine_calls(self, inspect_payload=None, ids=CONTAINER):
+        calls = []
 
-    def fake_run(command, **kwargs):
-        calls.append(command)
-        if command[1:3] == ["container", "ls"]:
-            return run_result(ids + "\n")
-        if command[1:3] == ["container", "inspect"]:
-            payload = inspect_payload if inspect_payload is not None else inspected()
-            return run_result(json.dumps(payload))
-        if command[1:4] == ["container", "rm", "--force"]:
-            return run_result()
-        raise AssertionError(f"Unexpected engine command: {command}")
+        def fake_run(command, **kwargs):
+            calls.append(command)
+            if command[1:3] == ["container", "ls"]:
+                return run_result(ids + "\n")
+            if command[1:3] == ["container", "inspect"]:
+                payload = inspect_payload if inspect_payload is not None else inspected()
+                return run_result(json.dumps(payload))
+            if command[1:4] == ["container", "rm", "--force"]:
+                return run_result()
+            raise AssertionError(f"Unexpected engine command: {command}")
 
-    monkeypatch.setattr("narrow.container_lifecycle.subprocess.run", fake_run)
-    return calls
+        which_patch = patch("narrow.container_lifecycle.shutil.which", side_effect=lambda name: f"/usr/bin/{name}")
+        run_patch = patch("narrow.container_lifecycle.subprocess.run", side_effect=fake_run)
+        which_patch.start()
+        run_patch.start()
+        self.addCleanup(which_patch.stop)
+        self.addCleanup(run_patch.stop)
+        return calls
+
+    def test_agent_container_labels_are_execution_scoped(self):
+        labels = agent_container_labels(TASK, EXECUTION)
+        self.assertEqual(labels["io.narrow.managed"], "true")
+        self.assertEqual(labels["io.narrow.component"], "agent")
+        self.assertEqual(labels["io.narrow.task"], TASK)
+        self.assertEqual(labels["io.narrow.execution"], EXECUTION)
+        args = agent_container_label_args(TASK, EXECUTION)
+        self.assertEqual(args.count("--label"), len(labels))
+
+    def test_invalid_execution_identity_is_rejected(self):
+        for task, execution in (("../outside", EXECUTION), (TASK, "../other"), (TASK, "not-a-uuid")):
+            with self.subTest(task=task, execution=execution):
+                with self.assertRaises(NarrowError):
+                    agent_container_labels(task, execution)
+
+    def test_listing_requires_exact_container_ownership(self):
+        self.mock_engine_calls()
+        containers = list_execution_agent_containers("docker", TASK, EXECUTION)
+        self.assertEqual(len(containers), 1)
+        self.assertEqual(containers[0].container_id, CONTAINER)
+        self.assertEqual(containers[0].task_id, TASK)
+        self.assertEqual(containers[0].execution_id, EXECUTION)
+        self.assertEqual(containers[0].status, "running")
+
+    def test_listing_refuses_a_container_with_mismatched_execution_label(self):
+        labels = agent_container_labels(TASK, EXECUTION)
+        labels["io.narrow.execution"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+        self.mock_engine_calls(inspect_payload=inspected(labels))
+        with self.assertRaisesRegex(NarrowError, "labels do not match"):
+            list_execution_agent_containers("docker", TASK, EXECUTION)
+
+    def test_cleanup_rechecks_ownership_before_removing(self):
+        calls = self.mock_engine_calls()
+        self.assertEqual(cleanup_execution_agent_containers("docker", TASK, EXECUTION), 1)
+        removals = [call for call in calls if call[1:4] == ["container", "rm", "--force"]]
+        self.assertEqual(len(removals), 1)
+        self.assertEqual(removals[0][-1], CONTAINER)
+
+    def test_cleanup_never_removes_a_foreign_container(self):
+        labels = agent_container_labels(TASK, EXECUTION)
+        labels["io.narrow.task"] = "another-task"
+        calls = self.mock_engine_calls(inspect_payload=inspected(labels))
+        with self.assertRaisesRegex(NarrowError, "labels do not match"):
+            cleanup_execution_agent_containers("docker", TASK, EXECUTION)
+        self.assertFalse(any(call[1:4] == ["container", "rm", "--force"] for call in calls))
+
+    def test_listing_is_bounded_for_one_execution(self):
+        ids = "\n".join(f"{index:064x}" for index in range(33))
+        self.mock_engine_calls(ids=ids)
+        with self.assertRaisesRegex(NarrowError, "large number"):
+            list_execution_agent_containers("docker", TASK, EXECUTION)
 
 
-def test_agent_container_labels_are_execution_scoped():
-    labels = agent_container_labels(TASK, EXECUTION)
-    assert labels["io.narrow.managed"] == "true"
-    assert labels["io.narrow.component"] == "agent"
-    assert labels["io.narrow.task"] == TASK
-    assert labels["io.narrow.execution"] == EXECUTION
-    args = agent_container_label_args(TASK, EXECUTION)
-    assert args.count("--label") == len(labels)
-
-
-@pytest.mark.parametrize("task,execution", [
-    ("../outside", EXECUTION),
-    (TASK, "../other"),
-    (TASK, "not-a-uuid"),
-])
-def test_invalid_execution_identity_is_rejected(task, execution):
-    with pytest.raises(NarrowError):
-        agent_container_labels(task, execution)
-
-
-def test_listing_requires_exact_container_ownership(monkeypatch):
-    calls = mock_engine_calls(monkeypatch)
-    containers = list_execution_agent_containers("docker", TASK, EXECUTION)
-    assert len(containers) == 1
-    assert containers[0].container_id == CONTAINER
-    assert containers[0].task_id == TASK
-    assert containers[0].execution_id == EXECUTION
-    assert containers[0].status == "running"
-
-
-def test_listing_refuses_a_container_with_mismatched_execution_label(monkeypatch):
-    labels = agent_container_labels(TASK, EXECUTION)
-    labels["io.narrow.execution"] = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-    mock_engine_calls(monkeypatch, inspect_payload=inspected(labels))
-    with pytest.raises(NarrowError, match="labels do not match"):
-        list_execution_agent_containers("docker", TASK, EXECUTION)
-
-
-def test_cleanup_rechecks_ownership_before_removing(monkeypatch):
-    calls = mock_engine_calls(monkeypatch)
-    assert cleanup_execution_agent_containers("docker", TASK, EXECUTION) == 1
-    removals = [call for call in calls if call[1:4] == ["container", "rm", "--force"]]
-    assert len(removals) == 1
-    assert removals[0][-1] == CONTAINER
-
-
-def test_cleanup_never_removes_a_foreign_container(monkeypatch):
-    labels = agent_container_labels(TASK, EXECUTION)
-    labels["io.narrow.task"] = "another-task"
-    calls = mock_engine_calls(monkeypatch, inspect_payload=inspected(labels))
-    with pytest.raises(NarrowError, match="labels do not match"):
-        cleanup_execution_agent_containers("docker", TASK, EXECUTION)
-    assert not any(call[1:4] == ["container", "rm", "--force"] for call in calls)
-
-
-def test_listing_is_bounded_for_one_execution(monkeypatch):
-    ids = "\n".join(f"{index:064x}" for index in range(33))
-    mock_engine_calls(monkeypatch, ids=ids)
-    with pytest.raises(NarrowError, match="large number"):
-        list_execution_agent_containers("docker", TASK, EXECUTION)
+if __name__ == "__main__":
+    unittest.main()
