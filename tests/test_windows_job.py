@@ -146,16 +146,22 @@ class WindowsJobTests(unittest.TestCase):
             )
             try:
                 deadline = time.monotonic() + 10
-                while (
-                    not child_pid_file.exists() or not grandchild_pid_file.exists()
-                ) and time.monotonic() < deadline:
+                child_pid_text = ""
+                grandchild_pid_text = ""
+                while time.monotonic() < deadline:
                     if supervisor.poll() is not None:
                         self.fail("The supervisor helper exited before reporting child PIDs.")
+                    if child_pid_file.exists():
+                        child_pid_text = child_pid_file.read_text(encoding="ascii").strip()
+                    if grandchild_pid_file.exists():
+                        grandchild_pid_text = grandchild_pid_file.read_text(encoding="ascii").strip()
+                    if child_pid_text and grandchild_pid_text:
+                        break
                     time.sleep(0.025)
-                self.assertTrue(child_pid_file.exists(), "The helper did not report the Job child PID.")
-                self.assertTrue(grandchild_pid_file.exists(), "The Job child did not report its grandchild PID.")
-                child_pid = int(child_pid_file.read_text(encoding="ascii").strip())
-                grandchild_pid = int(grandchild_pid_file.read_text(encoding="ascii").strip())
+                self.assertTrue(child_pid_text, "The helper did not report the Job child PID.")
+                self.assertTrue(grandchild_pid_text, "The Job child did not report its grandchild PID.")
+                child_pid = int(child_pid_text)
+                grandchild_pid = int(grandchild_pid_text)
 
                 # Deliberately omit /T: only the process holding the Job handle
                 # is killed. KILL_ON_JOB_CLOSE must tear down both descendants.
