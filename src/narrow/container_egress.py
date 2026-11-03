@@ -504,7 +504,7 @@ def run_codex_container_agent(
             credential_lease=lease,
             task_id=task_id,
             execution_id=execution,
-            proxy_token=proxy_runtime.token,
+            proxy_token_path=proxy_runtime.token_path,
             uid=os.getuid(),
             gid=os.getgid(),
         )
