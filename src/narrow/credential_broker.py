@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import os
 import re
 import stat
@@ -196,13 +197,17 @@ def validate_credential_lease(lease: CredentialLease, *, now: float | None = Non
     if not isinstance(lease, CredentialLease):
         raise NarrowError("Invalid credential lease handle.")
     current_time = time.time() if now is None else now
-    if not isinstance(current_time, (int, float)) or isinstance(current_time, bool):
+    if not isinstance(current_time, (int, float)) or isinstance(current_time, bool) or not math.isfinite(current_time):
         raise NarrowError("Credential lease validation time is invalid.")
+    if (
+        not isinstance(lease.expires_at, (int, float))
+        or isinstance(lease.expires_at, bool)
+        or not math.isfinite(lease.expires_at)
+    ):
+        raise NarrowError("Credential lease expiry metadata is invalid.")
     if current_time >= lease.expires_at:
-        try:
-            revoke_credential_lease(lease)
-        finally:
-            raise NarrowError("Provider credential lease has expired and was revoked.")
+        revoke_credential_lease(lease)
+        raise NarrowError("Provider credential lease has expired and was revoked.")
     if (
         lease.provider not in _PROVIDER_KEYS
         or lease.environment_name not in _PROVIDER_KEYS[lease.provider]
