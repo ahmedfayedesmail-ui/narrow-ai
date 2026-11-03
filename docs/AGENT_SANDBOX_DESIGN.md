@@ -193,3 +193,26 @@ sidecar, supervise a container ID, import hook events, revoke credentials, or
 recover after a host crash. The normal `narrow drive` workflow does not use
 this module yet; native host execution remains unchanged. Do not treat this
 slice as a working agent sandbox.
+
+
+## Host-side Docker process supervision slice
+
+A preparatory `narrow.container_supervisor` module now supervises one
+Codex-container process on POSIX hosts. It requires the local default Docker
+context, an exact task/execution-labeled internal network, the matching active
+NARROW task store and short-lived Codex credential lease, and the exact
+task-scoped workspace, task home, policy, and credential bind-mount sources.
+It rejects unapproved Docker flags and mount targets, rejects host environment
+pass-through and alternate providers, and requires a digest-pinned image,
+read-only root filesystem, dropped capabilities, no-new-privileges, bounded
+tmpfs, a non-root container user, and the authenticated egress-proxy settings.
+
+The supervisor streams bounded JSONL events to the host callback, retains
+non-event diagnostics within a configured limit, uses a private cidfile, and
+attempts exact-label container cleanup after completion, timeout, callback
+failure, or interruption. It is POSIX/local-Docker only. It does not yet launch
+or supervise the egress proxy, import the container event spool, clean the
+per-execution network, reconcile after an abrupt host crash, or connect to the
+normal `narrow drive` loop. The caller must provision the task-scoped home
+directory before invoking it. This is a supervision primitive, not a complete
+agent runtime or an enabled end-to-end sandbox.
