@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .locks import inherited_lock_options, task_execution_lock
+from .sandbox import cleanup_container, prepare_sandbox_command
 
 from .core import (
     NarrowError,
@@ -98,6 +99,7 @@ def run_verification_command(
     timeout: int,
     output_limit: int = 64 * 1024,
     _lock_fd: int | None = None,
+    sandbox: dict[str, Any] | None = None,
 ) -> tuple[int, str]:
     """Run a configured check with bounded retained output and best-effort tree cleanup.
 
@@ -116,10 +118,12 @@ def run_verification_command(
         if key.startswith("GIT_"):
             check_env.pop(key, None)
     check_env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0"})
+    sandbox_plan = prepare_sandbox_command(command, cwd, sandbox or {"mode": "off"})
+    execution_command = sandbox_plan.command if sandbox_plan else command
     try:
         with inherited_lock_options(_lock_fd) as lock_options:
             process = subprocess.Popen(
-                command,
+                execution_command,
                 cwd=cwd,
                 env=check_env,
                 stdin=subprocess.DEVNULL,
@@ -162,6 +166,8 @@ def run_verification_command(
         exit_code = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         _stop_process_tree(process)
+        if sandbox_plan is not None:
+            cleanup_container(sandbox_plan.engine, sandbox_plan.container_name)
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
@@ -173,6 +179,8 @@ def run_verification_command(
         exit_code = 124
     except KeyboardInterrupt:
         _stop_process_tree(process)
+        if sandbox_plan is not None:
+            cleanup_container(sandbox_plan.engine, sandbox_plan.container_name)
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
