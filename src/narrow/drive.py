@@ -17,6 +17,7 @@ from .core import (
     task_workspace,
     unsafe_workspace_links,
     write_internal_file,
+    cache_root,
 )
 from .supervisor import BLOCKED_FLAGS, run_agent, run_verification_command
 from .locks import task_execution_lock
@@ -109,6 +110,8 @@ def _run_one_check(store: Store, task: dict[str, Any], name: str, spec: dict[str
     exit_code, output = run_verification_command(
         command, cwd=workspace, env=env, timeout=timeout, _lock_fd=_lock_fd,
         sandbox=sandbox_config,
+        sandbox_cache_root=cache_root() / "container-caches",
+        sandbox_cache_scope=task["id"],
     )
 
     after = snapshot_hash(workspace)
@@ -229,6 +232,8 @@ def _drive_task_unlocked(
             _validate_command(spec.get("command"), f"Check '{name}'"),
             task_workspace(task),
             sandbox_config,
+            cache_root=cache_root() / "container-caches",
+            cache_scope=task_id,
         )
     if not _confirm_auto_checks(checks, yes_checks, sandbox_config):
         print("Cancelled. No agent or verification command was run.")
