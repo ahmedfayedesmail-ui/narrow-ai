@@ -1,11 +1,14 @@
-name: Publish NARROW v0.5.0 Alpha
-
 'on':
   push:
     branches: [main]
   issues:
     types: [opened, reopened]
   workflow_dispatch:
+    inputs:
+      authorization:
+        description: Type PUBLISH NARROW V0.5.0 ALPHA to authorize the release
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,15 +16,37 @@ permissions:
 
 jobs:
   publish-v050:
-    if: >-
-      ${{ github.event_name == 'issues' &&
-          (github.event.action == 'opened' || github.event.action == 'reopened') &&
-          github.event.issue.title == 'PUBLISH NARROW V0.5.0 ALPHA' &&
-          github.event.issue.user.login == 'ahmedfayedesmail-ui' &&
-          contains(github.event.issue.body, 'I authorize publication of NARROW v0.5.0 Alpha.') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'issues' && github.event.issue.title == 'PUBLISH NARROW V0.5.0 ALPHA') }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      - name: Validate the owner authorization
+        env:
+          GH_EVENT_NAME: ${{ github.event_name }}
+          GH_ACTOR: ${{ github.actor }}
+          RELEASE_AUTHORIZATION: ${{ inputs.authorization }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, sys
+          if os.environ['GH_ACTOR'] != 'ahmedfayedesmail-ui':
+              raise SystemExit('Only the repository owner may authorize this release.')
+          if os.environ['GH_EVENT_NAME'] == 'issues':
+              event = json.load(open(os.environ['GITHUB_EVENT_PATH'], encoding='utf-8'))
+              issue = event.get('issue', {})
+              valid = (
+                  event.get('action') in {'opened', 'reopened'}
+                  and issue.get('title') == 'PUBLISH NARROW V0.5.0 ALPHA'
+                  and (issue.get('user') or {}).get('login') == 'ahmedfayedesmail-ui'
+                  and 'I authorize publication of NARROW v0.5.0 Alpha.' in (issue.get('body') or '')
+              )
+          else:
+              valid = os.environ.get('RELEASE_AUTHORIZATION') == 'PUBLISH NARROW V0.5.0 ALPHA'
+          if not valid:
+              raise SystemExit('Release authorization did not match the required owner confirmation.')
+          PY
+
       - name: Check out the current main branch
         uses: actions/checkout@v4
         with:
