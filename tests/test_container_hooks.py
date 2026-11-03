@@ -125,13 +125,7 @@ class ContainerHookTests(unittest.TestCase):
         self.assertFalse((self.workspace.parent / "outside.txt").exists())
 
     def test_pre_tool_use_fails_closed_when_write_event_spool_is_unavailable(self):
-        self.environ.stop()
-        with patch.dict(os.environ, {
-            "HOME": str(self.home),
-            "NARROW_POLICY_MANIFEST": str(self.manifest.path),
-            "NARROW_TASK_ID": self.task["id"],
-            "NARROW_EXECUTION_ID": self.execution_id,
-        }):
+        with patch.dict(os.environ, {"NARROW_CONTAINER_EVENT_SPOOL": ""}):
             with patch("sys.stderr", new_callable=io.StringIO):
                 result = self.invoke("pre-tool-use", {
                     "tool_name": "Write",
