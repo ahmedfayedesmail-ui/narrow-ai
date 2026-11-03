@@ -454,13 +454,6 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     command = spec.get("command")
     if not isinstance(command, list) or not command or not all(isinstance(part, str) and part and "\x00" not in part for part in command):
         raise NarrowError(f"Check '{args.check}' must define a non-empty argv array. Shell strings are not supported.")
-    if sandbox_config.get("mode", "off") == "off":
-        print("Verification will run with your user permissions inside the isolated task worktree.")
-    else:
-        print("Verification will run in the configured " + str(sandbox_config.get("mode")) + " container profile.")
-    if not _confirm(command, args.yes):
-        print("Cancelled. No verification command was run.")
-        return 1
     workspace = task_workspace(task)
     # Validate the configured container engine and local image before asking
     # the user to approve this check.
@@ -468,6 +461,13 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     unsafe_before = unsafe_workspace_links(workspace)
     if unsafe_before:
         raise NarrowError("NARROW refuses to run verification while unsafe symlinks or hard-linked files exist: " + ", ".join(unsafe_before[:20]))
+    if sandbox_config.get("mode", "off") == "off":
+        print("Verification will run with your user permissions inside the isolated task worktree.")
+    else:
+        print("Verification will run in the configured " + str(sandbox_config.get("mode")) + " container profile.")
+    if not _confirm(command, args.yes):
+        print("Cancelled. No verification command was run.")
+        return 1
     before = snapshot_hash(workspace)
     try:
         raw_timeout = spec.get("timeout_seconds", 300)
