@@ -109,7 +109,10 @@ class ContainerEgressTests(unittest.TestCase):
             "NetworkSettings": {
                 "Networks": {
                     self.agent_network.name: {"Aliases": ["narrow-egress-proxy"]},
-                    self.uplink_network.name: {"Aliases": ["narrow-egress-uplink"]},
+                    self.uplink_network.name: {
+                        "Aliases": ["narrow-egress-uplink"],
+                        "Gateway": "172.31.0.1",
+                    },
                 }
             },
         }
