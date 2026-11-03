@@ -121,8 +121,8 @@ def build_docker_agent_command(
     task_id: str,
     execution_id: str,
     proxy_token: str,
-    uid: int = 1000,
-    gid: int = 1000,
+    uid: int | None = None,
+    gid: int | None = None,
 ) -> list[str]:
     """Build the exact, restricted Docker argv accepted by the host supervisor.
 
@@ -159,6 +159,11 @@ def build_docker_agent_command(
         or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", proxy_token)
     ):
         raise NarrowError("Docker agent requires a bounded URL-safe per-execution egress capability token.")
+    if uid is None or gid is None:
+        if not hasattr(os, "getuid") or not hasattr(os, "getgid"):
+            raise NarrowError("Docker agent requires an explicit non-root POSIX UID and GID.")
+        uid = os.getuid() if uid is None else uid
+        gid = os.getgid() if gid is None else gid
     if (
         not isinstance(uid, int) or isinstance(uid, bool)
         or not isinstance(gid, int) or isinstance(gid, bool)
