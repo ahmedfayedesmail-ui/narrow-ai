@@ -14,8 +14,9 @@ from .container_lifecycle import (\n    agent_container_labels,\n    cleanup_exe
 from .core import NarrowError, Store, task_workspace
 from .policy_manifest import _validate_execution_id
 from .agent_runtime import normalize_provider_argv, validate_agent_image
-from .credential_broker import CredentialLease, validate_credential_lease
-from .policy_manifest import read_policy_manifest\nfrom .container_hooks import import_container_hook_events\nfrom .credential_broker import revoke_credential_lease
+from .credential_broker import CredentialLease, validate_credential_lease, revoke_credential_lease
+from .policy_manifest import read_policy_manifest
+from .container_hooks import import_container_hook_events\nfrom .container_hooks import import_container_hook_events\nfrom .credential_broker import revoke_credential_lease
 
 _TASK_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
