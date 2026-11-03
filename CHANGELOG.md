@@ -1,4 +1,15 @@
-## Post-0.5.0 readiness hardening (unreleased)
+## 0.5.1 — 2026-11-03 (Alpha)
+
+### Changed
+- Refresh the source-distribution README so package-index pages no longer claim that no tagged GitHub release or package publication exists.
+- Include the public project, documentation, issues, and changelog URLs in distribution metadata.
+- Add a least-privilege, OIDC-based publishing workflow with TestPyPI-first verification.
+
+### Notes
+- This is a packaging/documentation release only; application runtime behavior is unchanged.
+- Authenticated Claude/Codex end-to-end validation, Windows crash-lifetime adversarial testing, and independent security review remain open.
+
+## Post-0.5.1 readiness hardening (unreleased)
 
 ### Added
 - A reproducible local end-to-end demo for a bounded fail-then-repair/handoff flow and a bounded failure flow. It uses a deterministic fake agent and leaves final acceptance to a human.
