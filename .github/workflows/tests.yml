@@ -94,6 +94,11 @@ jobs:
   windows:
     runs-on: windows-latest
     timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        demo-scenario: ["repaired", "blocked"]
+    name: windows (${{ matrix.demo-scenario }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -105,12 +110,10 @@ jobs:
         env:
           PYTHONPATH: src
         run: python -m unittest discover -s tests -p test_locks.py -v
-      - name: Exercise repaired and blocked demo workflows
+      - name: Exercise ${{ matrix.demo-scenario }} demo workflow
         env:
           PYTHONPATH: src
-        run: |
-          python examples/demo.py --scenario repaired
-          python examples/demo.py --scenario blocked
+        run: python examples/demo.py --scenario ${{ matrix.demo-scenario }}
       - name: CLI smoke test
         env:
           PYTHONPATH: src
