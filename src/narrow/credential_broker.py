@@ -294,3 +294,65 @@ def validate_credential_lease(lease: CredentialLease, *, now: float | None = Non
     if not hmac.compare_digest(actual, lease.sha256):
         raise NarrowError("Credential lease content does not match the issued digest.")
     return lease.path
+
+
+def revoke_execution_credential_files(
+    store: Store,
+    task_id: str,
+    execution_id: str,
+) -> int:
+    """Revoke every validated credential file for one explicitly recovered execution.
+
+    This is an operator-invoked crash-recovery primitive. It never traverses
+    outside the exact task/execution credentials directory.
+    """
+    if os.name == "nt":
+        raise NarrowError("Execution credential recovery is disabled on Windows until restricted DACL support exists.")
+    if not isinstance(store, Store):
+        raise NarrowError("Credential recovery requires the active NARROW task store.")
+    if not isinstance(task_id, str) or not _TASK_ID.fullmatch(task_id):
+        raise NarrowError("Invalid task ID for credential recovery.")
+    execution = _validate_execution_id(execution_id)
+    store._check_state_paths()
+    root = store.state_dir / "runtime" / "agent" / task_id / execution
+    credentials = root / "credentials"
+    try:
+        for directory in (
+            store.state_dir,
+            store.state_dir / "runtime",
+            store.state_dir / "runtime" / "agent",
+            store.state_dir / "runtime" / "agent" / task_id,
+            root,
+        ):
+            info = directory.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                raise NarrowError("Execution recovery directory chain contains a link or non-directory.")
+        if not credentials.exists():
+            return 0
+        info = credentials.lstat()
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            raise NarrowError("Execution credentials path is linked or not a directory.")
+        removed = 0
+        for entry in credentials.iterdir():
+            match = re.fullmatch(r"(?:claude|codex)-[0-9a-f]{32}\\.secret", entry.name)
+            if not match:
+                raise NarrowError("Execution credentials directory contains an unexpected entry; refusing bulk cleanup.")
+            metadata = entry.lstat()
+            if (
+                stat.S_ISLNK(metadata.st_mode)
+                or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or stat.S_IMODE(metadata.st_mode) != 0o400
+                or metadata.st_size <= 0
+                or metadata.st_size > _MAX_SECRET_BYTES
+            ):
+                raise NarrowError("An execution credential file is linked, oversized, or has unsafe permissions.")
+            entry.unlink()
+            removed += 1
+        return removed
+    except NarrowError:
+        raise
+    except OSError as exc:
+        raise NarrowError("Could not safely recover task-scoped provider credential files.") from exc
+
+
