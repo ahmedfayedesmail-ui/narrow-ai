@@ -18,6 +18,7 @@ TASK = "task_credential_1"
 EXECUTION = "12345678-1234-4234-8234-123456789abc"
 
 
+@unittest.skipIf(os.name == "nt", "credential file leases fail closed on Windows until restricted DACL support exists")
 class CredentialBrokerTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
@@ -99,6 +100,17 @@ class CredentialBrokerTests(unittest.TestCase):
             revoke_credential_lease(replace(
                 lease, execution_id="aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
             ))
+        revoke_credential_lease(lease)
+
+    def test_revoke_refuses_a_path_outside_the_narrow_state_root(self):
+        lease = issue_credential_lease(
+            self.store, "claude", TASK, EXECUTION, environment=self.environment
+        )
+        unrelated = self.root / "unrelated.secret"
+        unrelated.write_text("do-not-delete", encoding="utf-8")
+        with self.assertRaisesRegex(NarrowError, "path does not match"):
+            revoke_credential_lease(replace(lease, path=unrelated))
+        self.assertEqual(unrelated.read_text(encoding="utf-8"), "do-not-delete")
         revoke_credential_lease(lease)
 
     def test_revoke_is_idempotent(self):
