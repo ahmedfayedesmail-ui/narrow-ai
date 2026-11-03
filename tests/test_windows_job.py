@@ -18,8 +18,8 @@ class WindowsJobTests(unittest.TestCase):
             job = assign_process_to_job(child)
             self.assertIsNotNone(job)
             job.close()
-            with self.assertRaises(subprocess.TimeoutExpired):
-                child.wait(timeout=0.1)
+            return_code = child.wait(timeout=5)
+            self.assertNotEqual(return_code, 0, "Closing the Job Object should terminate the child.")
         finally:
             if job is not None:
                 job.close()
