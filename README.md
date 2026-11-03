@@ -36,7 +36,7 @@ The current development branch adds three opt-in capabilities that are not part 
 
 For the experimental container profile, build a project-specific image that includes all reviewed test dependencies. The sample under examples/containers is only a small Python/pytest starter. A container runtime and its daemon remain part of the host trust boundary; this is not equivalent to a Firecracker microVM or independent security review.
 
-Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md and docs/SANDBOXING.md for installation, configuration, and safety details.
+Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md, docs/SANDBOXING.md, and docs/AGENT_SANDBOX_DESIGN.md for installation, configuration, and the remaining agent-container acceptance gates.
 
 The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. Windows Job Object kill-on-close handling is implemented for supervised first-level child processes, but the spawn-to-assignment race and detached/breakaway process cases remain unverified. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
 
@@ -56,7 +56,7 @@ For an optional local Ollama proposal (only if Ollama and the chosen model are a
 narrow start --goal "Fix the login timeout" --auto-contract --ollama
 ```
 
-The contract proposal does not silently approve scope. NARROW prints the proposed paths and acceptance criteria and requires an explicit confirmation. Use `narrow propose "..." --json` to inspect a proposal without creating a task.
+The contract proposal does not silently approve scope. NARROW prints the proposed paths and acceptance criteria and requires an explicit confirmation. Use `narrow propose "..." --json` to inspect a proposal without creating a task. After task creation, use `narrow contract-history --task <id>` to compare the generated proposal with the human-approved contract.
 
 ## Core workflow
 
