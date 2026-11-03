@@ -32,13 +32,34 @@ The current development branch adds three opt-in capabilities that are not part 
 
 - Project discovery: narrow discover inspects common project manifests and suggests test commands. It never runs discovered commands. Use narrow discover --apply to review and add new suggestions to .narrow/config.json.
 - Task proposals: narrow propose "Fix the login timeout" drafts a contract without creating a task. Add --ollama to use a model already installed in local Ollama. The model request goes only to 127.0.0.1 and may include a small, bounded selection of source files; it is optional. Every proposed path and criterion requires human review.
-- Containerized verification: setting verification_sandbox.mode to auto, docker, or podman wraps configured checks in a local container with no network, read-only container root, dropped Linux capabilities, no-new-privileges, a PID limit, memory/CPU limits, and only the isolated task workspace mounted. The image must already exist locally; NARROW does not pull images. The default remains off for backward compatibility, so existing checks still run with the user's permissions until this is explicitly configured.
+- Containerized verification: setting verification_sandbox.mode to auto, docker, or podman wraps configured checks in a local container with no network, read-only container root, dropped Linux capabilities, no-new-privileges, a PID limit, memory/CPU limits, and only the isolated task workspace mounted. The image must already exist locally; NARROW does not pull images. The default remains off for backward compatibility.
+- **Experimental Codex agent container:** `narrow drive --provider codex --container-agent` uses a digest-pinned agent image and a separate digest-pinned proxy image. The agent joins only an execution-scoped Docker internal network; the CONNECT proxy is dual-homed to that internal network and a separate execution-scoped uplink. No proxy host port is published. The sidecar's labels, network attachments, read-only token mount, no-publish setting, UID/GID, resource limits, and readiness are inspected before the agent starts. This mode is POSIX/local-Docker only and requires an explicit `OPENAI_API_KEY` in the host environment.
 
 For the experimental container profile, build a project-specific image that includes all reviewed test dependencies. The sample under examples/containers is only a small Python/pytest starter. A container runtime and its daemon remain part of the host trust boundary; this is not equivalent to a Firecracker microVM or independent security review.
+To opt in to the experimental **Codex agent** container mode, add this reviewed configuration to `.narrow/config.json` (replace both digest references with images you built and audited):
+
+```json
+{
+  "agent_container": {
+    "image": "ghcr.io/your-org/narrow-codex-agent@sha256:<64-hex-digest>",
+    "proxy_image": "ghcr.io/your-org/narrow-egress-proxy@sha256:<64-hex-digest>",
+    "egress_allow_hosts": ["api.openai.com"]
+  }
+}
+```
+
+The agent image must contain the Codex CLI, Python, and the matching NARROW `narrow.agent_entrypoint` package. The proxy image must contain the matching `narrow.egress_proxy` package. Run with an explicit API key; NARROW does not import a Codex login profile:
+
+```bash
+export OPENAI_API_KEY=...
+narrow drive --provider codex --container-agent
+```
+
+Use the exact provider endpoints needed by your account in `egress_allow_hosts`; the default example is intentionally narrow and may not cover every account or feature. The mounted key is readable by the agent process. The Docker daemon and host kernel remain trusted, and the agent can still attempt to reach host services exposed on its local bridge. This is not a microVM or a complete boundary against a malicious host-level process. The feature is experimental, POSIX-only, and must pass real Docker and authenticated Codex acceptance tests before it can be considered Beta.
 
 Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md, docs/SANDBOXING.md, and docs/AGENT_SANDBOX_DESIGN.md for installation, configuration, and the remaining agent-container acceptance gates.
 
-The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created suspended inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; NARROW verifies Job membership before resuming the initial thread. There is no post-creation assignment window or suspended child outside the Job. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
+The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created suspended inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; NARROW verifies Job membership before resuming the initial thread. There is no post-creation assignment window or suspended child outside the Job. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release. The experimental agent-container mode is not part of that published package.
 
 ## Try the experimental workflow (feature branch only)
 
