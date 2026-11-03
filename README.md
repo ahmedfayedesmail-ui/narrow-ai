@@ -26,6 +26,20 @@ This is coordination, not a machine sandbox. Detached descendants may outlive th
 - **Richer Claude telemetry:** optional Task/Agent tools, task-created/completed and subagent lifecycle hooks, and tool-failure metadata. Subagents require explicit `--allow-subagents` opt-in.
 - **Compatibility diagnostics:** opt-in provider version probing reports when Claude Code should be upgraded for full task/subagent telemetry.
 
+## Experimental development features on the feature branch
+
+The current development branch adds three opt-in capabilities that are not part of the published v0.5.1 package:
+
+- Project discovery: narrow discover inspects common project manifests and suggests test commands. It never runs discovered commands. Use narrow discover --apply to review and add new suggestions to .narrow/config.json.
+- Task proposals: narrow propose "Fix the login timeout" drafts a contract without creating a task. Add --ollama to use a model already installed in local Ollama. The model request goes only to 127.0.0.1 and may include a small, bounded selection of source files; it is optional. Every proposed path and criterion requires human review.
+- Containerized verification: setting verification_sandbox.mode to auto, docker, or podman wraps configured checks in a local container with no network, read-only container root, dropped Linux capabilities, no-new-privileges, a PID limit, memory/CPU limits, and only the isolated task workspace mounted. The image must already exist locally; NARROW does not pull images. The default remains off for backward compatibility, so existing checks still run with the user's permissions until this is explicitly configured.
+
+For the experimental container profile, build a project-specific image that includes all reviewed test dependencies. The sample under examples/containers is only a small Python/pytest starter. A container runtime and its daemon remain part of the host trust boundary; this is not equivalent to a Firecracker microVM or independent security review.
+
+Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md.
+
+The dashboard remains read-only. Mutation controls are intentionally not exposed on an unauthenticated local HTTP server. Windows process/job lifetime validation, microVM support, turnkey framework-specific plugins, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
+
 ## Core workflow
 
 1. **Define the task.** State the objective, allowed paths, denied paths, and acceptance criteria.
