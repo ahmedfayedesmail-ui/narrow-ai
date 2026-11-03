@@ -9,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from narrow.core import NarrowError
+from narrow.egress_proxy import ProxyPolicyError
 from narrow.credential_broker import CredentialLease
 from narrow.agent_runtime import (
     build_docker_agent_command,
@@ -123,7 +124,7 @@ class AgentRuntimePlanTests(unittest.TestCase):
         self.assertEqual(command[command.index("--workdir") + 1], "/workspace")
         self.assertEqual(command[command.index("--user") + 1], f"{os.getuid()}:{os.getgid()}")
 
-    @unittest.skipIf(os.name == "nt", "Container credential leases are POSIX-only")
+    @unittest.skipIf(os.name == "nt" or os.getuid() == 0, "Requires a non-root POSIX test user")
     def test_rejects_invalid_egress_capability(self):
         task_id = "task_123"
         execution_id = "123e4567-e89b-12d3-a456-426614174000"
@@ -141,6 +142,9 @@ class AgentRuntimePlanTests(unittest.TestCase):
                 execution_id=execution_id, expires_at=time.time() + 300,
                 sha256=hashlib.sha256(b"key").hexdigest(),
             )
+            proxy_token = state / "runtime" / "agent" / task_id / execution_id / "proxy.token"
+            proxy_token.write_text("short\n", encoding="ascii")
+            proxy_token.chmod(0o400)
             workspace = root / "workspace"
             home = root / "home"
             workspace.mkdir()
@@ -152,12 +156,12 @@ class AgentRuntimePlanTests(unittest.TestCase):
                 "--sandbox", "workspace-write", "--ask-for-approval", "never", "-",
             ]
             with patch("narrow.agent_runtime.read_policy_manifest"):
-                with self.assertRaisesRegex(NarrowError, "capability token"):
+                with self.assertRaises(ProxyPolicyError):
                     build_docker_agent_command(
                         "ghcr.io/acme/narrow-agent@sha256:" + "f" * 64,
                         provider, workspace_path=workspace, task_home_path=home,
                         policy_manifest_path=manifest, credential_lease=lease,
-                        task_id=task_id, execution_id=execution_id, proxy_token="short",
+                        task_id=task_id, execution_id=execution_id, proxy_token_path=proxy_token,
                     )
 
 
