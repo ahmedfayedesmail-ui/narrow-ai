@@ -7,6 +7,7 @@ NARROW journal; prompts, tool arguments, and assistant message bodies are not.
 from __future__ import annotations
 
 import json
+import importlib.metadata
 import os
 import re
 import shlex
@@ -276,6 +277,50 @@ _ADAPTERS: dict[str, ProviderAdapter] = {
     "claude": ClaudeCodeAdapter(),
     "codex": CodexCliAdapter(),
 }
+_EXTERNAL_ADAPTERS_LOADED = False
+
+
+def register_adapter(adapter: ProviderAdapter, *, replace: bool = False) -> None:
+    """Register a trusted provider plugin implementing the ProviderAdapter contract."""
+    if not isinstance(adapter, ProviderAdapter):
+        raise NarrowError("Provider plugin must inherit from ProviderAdapter.")
+    name = getattr(adapter, "name", "")
+    if not isinstance(name, str) or not re.fullmatch(r"[a-z][a-z0-9_-]{1,40}", name):
+        raise NarrowError("Provider plugin name must be a lowercase identifier.")
+    if name in {"claude", "codex"}:
+        raise NarrowError("External provider plugins cannot replace built-in providers.")
+    if name in _ADAPTERS and not replace:
+        raise NarrowError(f"Provider adapter '{name}' is already registered.")
+    if type(adapter).build_command is ProviderAdapter.build_command or type(adapter).parse_event is ProviderAdapter.parse_event:
+        raise NarrowError(f"Provider adapter '{name}' must implement build_command and parse_event.")
+    _ADAPTERS[name] = adapter
+
+
+def _load_external_adapters() -> None:
+    global _EXTERNAL_ADAPTERS_LOADED
+    if _EXTERNAL_ADAPTERS_LOADED:
+        return
+    _EXTERNAL_ADAPTERS_LOADED = True
+    try:
+        entries = importlib.metadata.entry_points(group="narrow.adapters")
+        for entry in entries:
+            try:
+                loaded = entry.load()
+                adapter = loaded() if isinstance(loaded, type) else loaded
+                register_adapter(adapter)
+            except Exception as exc:
+                raise NarrowError(f"Could not load provider plugin '{entry.name}': {type(exc).__name__}.") from exc
+    except TypeError:
+        # Compatibility fallback for metadata providers with the older API shape.
+        all_entries = importlib.metadata.entry_points()
+        selected = all_entries.select(group="narrow.adapters") if hasattr(all_entries, "select") else all_entries.get("narrow.adapters", [])
+        for entry in selected:
+            try:
+                loaded = entry.load()
+                adapter = loaded() if isinstance(loaded, type) else loaded
+                register_adapter(adapter)
+            except Exception as exc:
+                raise NarrowError(f"Could not load provider plugin '{entry.name}': {type(exc).__name__}.") from exc
 
 
 def _valid_session_id(value: Any) -> bool:
@@ -285,6 +330,7 @@ def _valid_session_id(value: Any) -> bool:
 
 
 def get_adapter(name: str) -> ProviderAdapter:
+    _load_external_adapters()
     adapter = _ADAPTERS.get(name.lower().strip())
     if adapter is None:
         raise NarrowError(f"Unsupported provider '{name}'. Choose one of: {', '.join(_ADAPTERS)}.")
@@ -310,6 +356,7 @@ def provider_status(*, probe_versions: bool = False) -> list[dict[str, Any]]:
     Version probing is opt-in because it executes the binary found on PATH.
     The probe only invokes the documented, non-mutating --version flag.
     """
+    _load_external_adapters()
     result = []
     for name, adapter in _ADAPTERS.items():
         path = shutil.which(adapter.executable)
