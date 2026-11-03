@@ -64,11 +64,16 @@ class DashboardTests(unittest.TestCase):
         self.env.stop()
         self.temp.cleanup()
 
-    def request(self, method: str, path: str, *, host: str | None = None, body: bytes | None = None):
+    def request(self, method: str, path: str, *, host: str | None = None, body: bytes | None = None,
+                authenticated: bool = True, token: str | None = None, origin: str | None = None):
         connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=3)
         headers = {}
         if host:
             headers["Host"] = host
+        if authenticated:
+            headers["X-NARROW-Token"] = token or self.server.api_token
+        if origin:
+            headers["Origin"] = origin
         if body is not None:
             headers["Content-Length"] = str(len(body))
         connection.request(method, path, body=body, headers=headers)
@@ -104,10 +109,27 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertIn(b"Localhost access only", body)
 
-    def test_dashboard_is_read_only(self):
+    def test_dashboard_is_read_only_and_requires_token_for_mutation_verbs(self):
         status, _, _ = self.request("POST", "/api/v1/tasks", body=b"{}")
         self.assertEqual(status, 405)
+        status, _, _ = self.request("POST", "/api/v1/tasks", body=b"{}", authenticated=False)
+        self.assertEqual(status, 403)
+        status, _, _ = self.request("PUT", "/api/v1/tasks", body=b"{}", token="wrong-token")
+        self.assertEqual(status, 403)
         self.assertEqual(self.store.get_task(self.task["id"])["status"], "ACTIVE")
+
+    def test_dashboard_api_rejects_missing_or_wrong_token(self):
+        status, _, body = self.request("GET", "/api/v1/tasks", authenticated=False)
+        self.assertEqual(status, 403)
+        self.assertIn(b"unauthorized", body)
+        status, _, _ = self.request("GET", "/api/v1/tasks", token="not-the-dashboard-token")
+        self.assertEqual(status, 403)
+
+    def test_dashboard_rejects_cross_origin_api_request(self):
+        status, _, _ = self.request(
+            "GET", "/api/v1/tasks", origin="https://attacker.example"
+        )
+        self.assertEqual(status, 403)
 
     def test_dashboard_html_uses_local_assets_and_no_remote_dependencies(self):
         status, _, body = self.request("GET", "/")
@@ -115,6 +137,8 @@ class DashboardTests(unittest.TestCase):
         html = body.decode("utf-8")
         self.assertIn("/assets/app.js", html)
         self.assertIn("/assets/app.css", html)
+        self.assertIn("narrow.dashboard.token", html)
+        self.assertIn("X-NARROW-Token", html)
         self.assertNotIn("https://", html)
 
     def test_task_detail_never_returns_check_output_or_note_payloads(self):
