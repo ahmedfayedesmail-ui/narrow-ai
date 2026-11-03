@@ -18,6 +18,7 @@ from .container_lifecycle import (
     cleanup_execution_egress_uplink_networks,
     list_execution_agent_containers,
     list_execution_agent_networks,
+    list_execution_egress_proxy_containers,
 )
 from .core import NarrowError, Store, task_workspace
 from .policy_manifest import _validate_execution_id
@@ -461,7 +462,6 @@ def _run_container_agent(
                 cleanup_errors.append("egress-proxy-preserved-agent-container-still-exists")
             else:
                 cleanup_execution_egress_proxy_containers("docker", task_id, expected_execution)
-                from .container_lifecycle import list_execution_egress_proxy_containers
                 remaining_proxies = list_execution_egress_proxy_containers("docker", task_id, expected_execution)
                 if remaining_proxies:
                     cleanup_errors.append("egress-uplink-preserved-proxy-container-still-exists")
