@@ -205,7 +205,7 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 ## Current validation
 
 - The local unit suite covers the CLI, task creation, path/snapshot gates, provider adapters with fakes, dashboard, bounded repair/handoff, and task locks.
-- GitHub Actions run [#41642840892](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41642840892) passed on the reviewed PR snapshot: Ubuntu/Python 3.11–3.14 full suites and demos, macOS/Python 3.13 full suite and demos, Windows Server 2025/Python 3.13 lock tests and demos, plus wheel/sdist build and clean wheel installation.
+- GitHub Actions run [#41644004390](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41642840892) passed on the reviewed PR snapshot: Ubuntu/Python 3.11–3.14 full suites and demos, macOS/Python 3.13 full suite and demos, Windows Server 2025/Python 3.13 lock tests and demos, plus wheel/sdist build and clean wheel installation.
 - The run also created, extracted, and tested a source archive from the exact checked-out commit; the tested archive is attached to the workflow run as an artifact. GitHub's Download ZIP is the current-source download route.
 - The deterministic demo exercises successful repair and bounded failure with a fake agent. It is not an authenticated provider test.
 - Authenticated Claude/Codex end-to-end sessions, provider-version support guarantees, Windows inherited-handle crash lifetime, full OS-sandbox escape testing, and independent security review remain open gates.
