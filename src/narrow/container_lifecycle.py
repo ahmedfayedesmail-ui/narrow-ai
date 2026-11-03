@@ -173,3 +173,131 @@ def cleanup_execution_agent_containers(
         _run(engine, ["container", "rm", "--force", container.container_id], timeout=30)
         removed += 1
     return removed
+
+
+@dataclass(frozen=True)
+class AgentNetwork:
+    """An internal, execution-scoped network reserved for one NARROW agent run."""
+
+    network_id: str
+    name: str
+    task_id: str
+    execution_id: str
+    driver: str
+
+
+def agent_network_labels(task_id: str, execution_id: str) -> dict[str, str]:
+    """Return labels for a private, per-execution agent network."""
+    task, execution = _identity(task_id, execution_id)
+    return {
+        _LABEL_MANAGED: "true",
+        _LABEL_COMPONENT: "agent-network",
+        _LABEL_TASK: task,
+        _LABEL_EXECUTION: execution,
+        _LABEL_SCHEMA: _SCHEMA_VALUE,
+    }
+
+
+def agent_network_label_args(task_id: str, execution_id: str) -> list[str]:
+    labels = agent_network_labels(task_id, execution_id)
+    return [item for key, value in labels.items() for item in ("--label", f"{key}={value}")]
+
+
+def _inspect_network(engine: str, network_id: str) -> dict[str, Any]:
+    if not isinstance(network_id, str) or not _CONTAINER_ID.fullmatch(network_id):
+        raise NarrowError("Network ID must be a 12–64 character hexadecimal engine ID.")
+    raw = _run(engine, ["network", "inspect", network_id])
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise NarrowError("Container engine returned malformed network inspect JSON.") from exc
+    if not isinstance(value, list) or len(value) != 1 or not isinstance(value[0], dict):
+        raise NarrowError("Container engine returned an unexpected network inspect response.")
+    return value[0]
+
+
+def _owned_network(
+    engine: str,
+    network_id: str,
+    task_id: str,
+    execution_id: str,
+) -> AgentNetwork:
+    task, execution = _identity(task_id, execution_id)
+    inspected = _inspect_network(engine, network_id)
+    labels = inspected.get("Labels")
+    expected = agent_network_labels(task, execution)
+    if not isinstance(labels, dict) or any(labels.get(key) != value for key, value in expected.items()):
+        raise NarrowError(
+            "Refusing to control this network: its NARROW managed/task/execution labels do not match exactly."
+        )
+    if inspected.get("Internal") is not True:
+        raise NarrowError("Refusing to use or remove an agent network that is not Docker/Podman internal.")
+    driver = inspected.get("Driver")
+    name = inspected.get("Name")
+    if driver != "bridge" or not isinstance(name, str) or not name.startswith("narrow-agent-"):
+        raise NarrowError("Agent network must be a named internal bridge network.")
+    return AgentNetwork(network_id, name, task, execution, driver)
+
+
+def create_execution_agent_network(
+    engine: str,
+    task_id: str,
+    execution_id: str,
+) -> AgentNetwork:
+    """Create an internal bridge network with immutable execution ownership labels."""
+    task, execution = _identity(task_id, execution_id)
+    name = f"narrow-agent-{task[:32]}-{execution.replace('-', '')[:12]}"
+    command = [
+        "network", "create", "--driver", "bridge", "--internal",
+        *agent_network_label_args(task, execution),
+        name,
+    ]
+    network_id = _run(engine, command, timeout=30).strip()
+    network = _owned_network(engine, network_id, task, execution)
+    if network.name != name:
+        raise NarrowError("Container engine created a network with an unexpected name.")
+    return network
+
+
+def list_execution_agent_networks(
+    engine: str,
+    task_id: str,
+    execution_id: str,
+) -> list[AgentNetwork]:
+    """List only internal agent networks whose inspect metadata proves ownership."""
+    task, execution = _identity(task_id, execution_id)
+    ids_raw = _run(engine, [
+        "network", "ls", "--quiet",
+        "--filter", f"label={_LABEL_MANAGED}=true",
+        "--filter", f"label={_LABEL_COMPONENT}=agent-network",
+        "--filter", f"label={_LABEL_TASK}={task}",
+        "--filter", f"label={_LABEL_EXECUTION}={execution}",
+    ])
+    ids = [line.strip() for line in ids_raw.splitlines() if line.strip()]
+    if len(ids) > 8:
+        raise NarrowError("Unexpectedly large number of agent networks for one execution; refusing automatic cleanup.")
+    result: list[AgentNetwork] = []
+    seen: set[str] = set()
+    for network_id in ids:
+        if network_id in seen:
+            continue
+        seen.add(network_id)
+        result.append(_owned_network(engine, network_id, task, execution))
+    return result
+
+
+def cleanup_execution_agent_networks(
+    engine: str,
+    task_id: str,
+    execution_id: str,
+) -> int:
+    """Remove the exact execution's internal networks only after its agents are gone."""
+    if list_execution_agent_containers(engine, task_id, execution_id):
+        raise NarrowError("Refusing to remove an agent network while task/execution agent containers still exist.")
+    networks = list_execution_agent_networks(engine, task_id, execution_id)
+    removed = 0
+    for network in networks:
+        _owned_network(engine, network.network_id, task_id, execution_id)
+        _run(engine, ["network", "rm", network.network_id], timeout=30)
+        removed += 1
+    return removed
