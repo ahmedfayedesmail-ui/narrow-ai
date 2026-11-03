@@ -41,6 +41,40 @@ allowlisting egress proxy or equivalent host firewall policy that permits only
 the required provider endpoints and explicitly reviewed registries. Do not
 claim network isolation while the agent can reach arbitrary internet hosts.
 
+## Egress proxy primitive (experimental)
+
+`python -m narrow.egress_proxy` starts a bounded HTTP CONNECT proxy using only
+the Python standard library. It accepts TLS tunnels only on port 443, exact
+fully-qualified provider hostnames, a per-instance bearer capability token,
+and DNS answers consisting entirely of public IP addresses. It connects to the
+numeric address selected during policy validation, avoiding a second DNS
+lookup between validation and connection. Wildcards, IP-literal destinations,
+private/link-local/reserved DNS results, non-CONNECT methods, oversized headers,
+and unauthenticated requests fail closed. The listener refuses wildcard and
+public-interface bind addresses.
+
+Example (run on a private, execution-isolated container network):
+
+```sh
+python -m narrow.egress_proxy \
+  --bind 172.30.0.1 --port 3128 \
+  --allow-host api.anthropic.com \
+  --token-file /run/narrow/proxy-token
+```
+
+The token file must be owner-only (mode 0600 on POSIX) and contain at least
+32 random ASCII characters. The agent receives only the proxy capability, not
+a provider API key. The proxy does not decrypt provider TLS; provider TLS
+verification remains the responsibility of the client. A provider hostname
+allowlist does not prevent the agent from sending task data to that provider.
+
+**This is a proxy primitive, not end-to-end egress enforcement.** Until the
+agent launcher creates a per-execution network with no direct internet route,
+attaches the agent only to that network, and routes the proxy's upstream
+traffic through a separate controlled uplink, an agent can bypass a standalone
+proxy. This module is not wired into agent execution yet and must not be treated
+as an enabled security control.
+
 ## Provider integration constraints
 
 The built-in Claude adapter currently creates task-specific settings and hook
