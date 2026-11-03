@@ -170,6 +170,91 @@ def _validate_path(workspace: Path, requested: str, *, allow_directory: bool = F
     return _validate_workspace_path(workspace, requested, allow_directory=allow_directory)
 
 
+_IMPORTABLE_EVENTS = {
+    "CLAUDE_SESSION_START", "CLAUDE_FILE_OPERATION_BLOCKED",
+    "CLAUDE_FILE_WRITE_ALLOWED", "CLAUDE_FILE_READ_ALLOWED",
+    "CLAUDE_FILE_WRITE_BLOCKED", "CLAUDE_TOOL_COMPLETED",
+    "CLAUDE_TOOL_FAILED", "CLAUDE_PRECOMPACT_HANDOFF",
+    "CLAUDE_STOP_SIGNAL", "CLAUDE_SESSION_END",
+    "CLAUDE_SUBAGENT_STARTED", "CLAUDE_SUBAGENT_STOPPED",
+    "CLAUDE_TASK_CREATED", "CLAUDE_TASK_COMPLETED",
+}
+
+
+def import_container_hook_events(
+    store: Any,
+    task_id: str,
+    execution_id: str,
+    spool_path: Path,
+) -> int:
+    """Import bounded hook telemetry as explicitly untrusted host journal events.
+
+    These records are controlled by the agent process. They are useful for
+    diagnostics and continuity only; they never establish verification,
+    acceptance, scope compliance, or task completion.
+    """
+    if not isinstance(task_id, str) or not task_id or len(task_id) > 64:
+        raise NarrowError("Invalid task ID for container hook telemetry import.")
+    try:
+        from .policy_manifest import _validate_execution_id
+        execution = _validate_execution_id(execution_id)
+    except NarrowError:
+        raise
+
+    source = Path(spool_path)
+    try:
+        metadata = source.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise NarrowError("Container hook event spool must be a regular, unlinked file.")
+        if metadata.st_size > _MAX_SPOOL:
+            raise NarrowError("Container hook event spool exceeds the 4 MiB safety limit.")
+        raw = source.read_bytes()
+    except NarrowError:
+        raise
+    except OSError as exc:
+        raise NarrowError(f"Could not safely read container hook event spool: {exc}") from exc
+
+    imported = 0
+    for line in raw.splitlines()[:4096]:
+        if not line or len(line) > 16 * 1024:
+            continue
+        try:
+            record = json.loads(line.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+        if not isinstance(record, dict) or set(record) != {
+            "schema", "task_id", "execution_id", "event_type", "created_at", "payload",
+        }:
+            continue
+        event_type = record.get("event_type")
+        payload = record.get("payload")
+        created_at = record.get("created_at")
+        if (
+            record.get("schema") != "narrow.container-hook-event.v1"
+            or record.get("task_id") != task_id
+            or record.get("execution_id") != execution
+            or event_type not in _IMPORTABLE_EVENTS
+            or not isinstance(created_at, str)
+            or len(created_at) > 64
+            or not isinstance(payload, dict)
+        ):
+            continue
+        try:
+            # The original event name remains data, not the host event type.
+            store.add_event(task_id, "CONTAINER_HOOK_TELEMETRY", {
+                "source": "agent_writable_event_spool",
+                "execution_id": execution,
+                "recorded_at": created_at,
+                "reported_event_type": event_type,
+                "trust": "untrusted_agent_telemetry",
+                "payload": _event_value(payload),
+            })
+        except Exception as exc:
+            raise NarrowError(f"Could not import container hook telemetry: {type(exc).__name__}") from exc
+        imported += 1
+    return imported
+
+
 def handle_container_claude_hook(
     event: str,
     *,
