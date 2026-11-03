@@ -62,8 +62,11 @@ class ContainerHookTests(unittest.TestCase):
         (self.workspace / "src").mkdir(parents=True)
         (self.workspace / "src" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
         (self.workspace / "src" / "auth").mkdir()
-        self.home = Path(self.temp.name) / "agent-home"
-        self.home.mkdir()
+        self.home = (
+            self.store.state_dir / "runtime" / "agent" / self.task["id"]
+            / self.execution_id / "home"
+        )
+        self.home.mkdir(parents=True)
         self.spool = self.home / ".local" / "state" / "narrow" / "hook-events.jsonl"
         self.environ = patch.dict(os.environ, {
             "HOME": str(self.home),
@@ -159,6 +162,14 @@ class ContainerHookTests(unittest.TestCase):
         self.assertEqual(len(telemetry), 1)
         self.assertEqual(telemetry[0]["payload"]["trust"], "untrusted_agent_telemetry")
         self.assertEqual(telemetry[0]["payload"]["reported_event_type"], "CLAUDE_SESSION_START")
+
+    def test_host_importer_rejects_spool_outside_task_execution_home(self):
+        outside_spool = Path(self.temp.name) / "outside-hook-events.jsonl"
+        outside_spool.write_text("{}\\n", encoding="utf-8")
+        with self.assertRaisesRegex(NarrowError, "canonical file inside this task/execution agent home"):
+            import_container_hook_events(
+                self.store, self.task["id"], self.execution_id, outside_spool
+            )
 
     def test_host_importer_ignores_spool_records_from_another_execution(self):
         self.invoke("session-start", {"session_id": "spool-import"})

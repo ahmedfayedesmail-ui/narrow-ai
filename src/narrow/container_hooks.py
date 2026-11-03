@@ -202,14 +202,54 @@ def import_container_hook_events(
     except NarrowError:
         raise
 
+    # Never accept an arbitrary host path from a caller or from container data.
+    # The host-owned execution directory is the only valid source for this spool.
+    execution_root = store.state_dir / "runtime" / "agent" / task_id / execution
+    expected_home = execution_root / "home"
+    expected_spool = expected_home / ".local" / "state" / "narrow" / "hook-events.jsonl"
     source = Path(spool_path)
+    if not source.is_absolute() or source != expected_spool:
+        raise NarrowError("Container hook event spool must be the canonical file inside this task/execution agent home.")
+
     try:
+        for directory in (
+            store.state_dir,
+            store.state_dir / "runtime",
+            store.state_dir / "runtime" / "agent",
+            store.state_dir / "runtime" / "agent" / task_id,
+            execution_root,
+            expected_home,
+            expected_home / ".local",
+            expected_home / ".local" / "state",
+            expected_home / ".local" / "state" / "narrow",
+        ):
+            info = directory.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                raise NarrowError("Container hook event spool directory chain must contain only real directories.")
         metadata = source.lstat()
         if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
             raise NarrowError("Container hook event spool must be a regular, unlinked file.")
         if metadata.st_size > _MAX_SPOOL:
             raise NarrowError("Container hook event spool exceeds the 4 MiB safety limit.")
-        raw = source.read_bytes()
+
+        # Open without following a final-component symlink and enforce the size
+        # limit again while reading in case the file changes after lstat.
+        descriptor = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1 or opened.st_size > _MAX_SPOOL:
+                raise NarrowError("Container hook event spool changed or is not a bounded regular file.")
+            chunks = bytearray()
+            while len(chunks) <= _MAX_SPOOL:
+                chunk = os.read(descriptor, min(65536, _MAX_SPOOL + 1 - len(chunks)))
+                if not chunk:
+                    break
+                chunks.extend(chunk)
+            if len(chunks) > _MAX_SPOOL:
+                raise NarrowError("Container hook event spool exceeds the 4 MiB safety limit.")
+            raw = bytes(chunks)
+        finally:
+            os.close(descriptor)
     except NarrowError:
         raise
     except OSError as exc:
