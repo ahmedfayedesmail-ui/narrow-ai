@@ -101,6 +101,29 @@ def run_container_agent(
         raise NarrowError("Docker supervisor argv contains an invalid argument.")
     if any(value == "--cidfile" for value in command):
         raise NarrowError("Docker cidfile is managed by NARROW and must not be supplied by callers.")
+    flag_without_value = {"--rm", "--init", "--interactive", "--read-only"}
+    flag_with_value = {
+        "--name", "--network", "--workdir", "--user", "--cap-drop",
+        "--security-opt", "--pids-limit", "--memory", "--cpus", "--tmpfs",
+        "--label", "--mount", "--env", "--entrypoint",
+    }
+    index = 2
+    image_index = None
+    while index < len(command):
+        option = command[index]
+        if option in flag_without_value:
+            index += 1
+        elif option in flag_with_value:
+            if index + 1 >= len(command):
+                raise NarrowError("Docker agent command has an option without its required value.")
+            index += 2
+        elif option.startswith("-"):
+            raise NarrowError("Docker agent command contains an unsupported Docker flag.")
+        else:
+            image_index = index
+            break
+    if image_index is None or image_index + 1 >= len(command):
+        raise NarrowError("Docker agent command is missing its image or in-container command.")
     if not isinstance(task_id, str) or not _TASK_ID.fullmatch(task_id):
         raise NarrowError("Invalid task ID for Docker supervisor.")
     expected_execution = _validate_execution_id(execution_id)
@@ -240,18 +263,15 @@ def run_container_agent(
         or not re.fullmatch(r"http://narrow:[A-Za-z0-9_-]{32,128}@narrow-egress-proxy:3128", proxy)
     ):
         raise NarrowError("Docker agent must use the authenticated per-execution NARROW egress proxy.")
-    if "--entrypoint" not in command or command[command.index("--entrypoint") + 1:command.index("--entrypoint") + 2] != ["python"]:
+    if command.count("--entrypoint") != 1 or command[command.index("--entrypoint") + 1] != "python":
         raise NarrowError("Docker agent must start through the NARROW in-container entrypoint.")
-    entrypoint_index = command.index("--entrypoint")
-    if entrypoint_index + 10 >= len(command):
-        raise NarrowError("Docker agent image or in-container entrypoint arguments are incomplete.")
-    validate_agent_image(command[entrypoint_index + 2])
-    if command[entrypoint_index + 3:entrypoint_index + 10] != [
+    validate_agent_image(command[image_index])
+    if command[image_index + 1:image_index + 8] != [
         "-m", "narrow.agent_entrypoint", "--provider", "codex",
         "--credential-file", "/run/secrets/provider-api-key", "--",
     ]:
         raise NarrowError("Docker agent must invoke the constrained Codex credential entrypoint.")
-    normalize_provider_argv("codex", command[entrypoint_index + 10:])
+    normalize_provider_argv("codex", command[image_index + 8:])
     if "--workdir" not in command or command[command.index("--workdir") + 1:command.index("--workdir") + 2] != ["/workspace"]:
         raise NarrowError("Docker agent working directory must be the virtual /workspace.")
     if "--user" not in command or not re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", command[command.index("--user") + 1]):
