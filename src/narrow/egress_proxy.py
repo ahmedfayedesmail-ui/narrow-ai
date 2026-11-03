@@ -13,7 +13,6 @@ import math
 import os
 import re
 import select
-import shlex
 import socket
 import socketserver
 import stat

@@ -6,7 +6,6 @@ import socket
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from narrow.egress_proxy import (
     EgressProxy,
@@ -110,23 +109,23 @@ class EgressProxyPolicyTests(unittest.TestCase):
     @staticmethod
     def make_client_hello(hostname: str, split_after: int | None = None) -> bytes:
         host = hostname.encode("ascii")
-        server_name = b"\\x00" + len(host).to_bytes(2, "big") + host
+        server_name = b"\x00" + len(host).to_bytes(2, "big") + host
         sni_list = len(server_name).to_bytes(2, "big") + server_name
-        sni_extension = b"\\x00\\x00" + len(sni_list).to_bytes(2, "big") + sni_list
+        sni_extension = b"\x00\x00" + len(sni_list).to_bytes(2, "big") + sni_list
         extensions = sni_extension
         body = (
-            b"\\x03\\x03" + b"\\x00" * 32
-            + b"\\x00"
-            + b"\\x00\\x02\\x13\\x01"
-            + b"\\x01\\x00"
+            b"\x03\x03" + b"\x00" * 32
+            + b"\x00"
+            + b"\x00\x02\x13\x01"
+            + b"\x01\x00"
             + len(extensions).to_bytes(2, "big") + extensions
         )
-        handshake = b"\\x01" + len(body).to_bytes(3, "big") + body
+        handshake = b"\x01" + len(body).to_bytes(3, "big") + body
         chunks = [handshake] if split_after is None else [
             handshake[:split_after], handshake[split_after:]
         ]
         return b"".join(
-            b"\\x16\\x03\\x01" + len(chunk).to_bytes(2, "big") + chunk
+            b"\x16\x03\x01" + len(chunk).to_bytes(2, "big") + chunk
             for chunk in chunks
         )
 

@@ -68,6 +68,8 @@ a provider API key. The proxy does not decrypt provider TLS; provider TLS
 verification remains the responsibility of the client. A provider hostname
 allowlist does not prevent the agent from sending task data to that provider.
 
+The proxy also binds the TLS ClientHello SNI to the exact CONNECT hostname; clients without a visible DNS SNI (including ECH-only handshakes) fail closed.
+
 **This is a proxy primitive, not end-to-end egress enforcement.** Until the
 agent launcher creates a per-execution network with no direct internet route,
 attaches the agent only to that network, and routes the proxy's upstream
