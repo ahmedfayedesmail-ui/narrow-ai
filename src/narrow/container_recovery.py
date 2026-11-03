@@ -9,7 +9,10 @@ from .container_hooks import import_container_hook_events
 from .container_lifecycle import (
     cleanup_execution_agent_containers,
     cleanup_execution_agent_networks,
+    cleanup_execution_egress_proxy_containers,
+    cleanup_execution_egress_uplink_networks,
     list_execution_agent_containers,
+    list_execution_egress_proxy_containers,
 )
 from .core import NarrowError, Store
 from .credential_broker import revoke_execution_credential_files
@@ -52,6 +55,10 @@ def recover_agent_execution(
     remaining = list_execution_agent_containers("docker", task_id, execution)
     if remaining:
         raise NarrowError("Runtime recovery stopped: a task/execution-owned agent container is still present.")
+    removed_proxy_containers = cleanup_execution_egress_proxy_containers("docker", task_id, execution)
+    remaining_proxies = list_execution_egress_proxy_containers("docker", task_id, execution)
+    if remaining_proxies:
+        raise NarrowError("Runtime recovery stopped: an execution-owned egress proxy sidecar is still present.")
 
     home = execution_root / "home"
     spool = home / ".local" / "state" / "narrow" / "hook-events.jsonl"
@@ -81,11 +88,14 @@ def recover_agent_execution(
     remaining = list_execution_agent_containers("docker", task_id, execution)
     if remaining:
         raise NarrowError("Runtime recovery stopped: an agent container reappeared during cleanup.")
+    removed_uplink_networks = cleanup_execution_egress_uplink_networks("docker", task_id, execution)
     removed_networks = cleanup_execution_agent_networks("docker", task_id, execution)
 
     report = {
         "execution_id": execution,
         "removed_containers": removed_containers,
+        "removed_egress_proxy_containers": removed_proxy_containers,
+        "removed_egress_uplink_networks": removed_uplink_networks,
         "removed_networks": removed_networks,
         "revoked_credentials": revoked_credentials,
         "imported_untrusted_hook_events": imported_events,
