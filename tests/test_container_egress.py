@@ -9,9 +9,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from narrow.container_egress import (
+    EgressProxyRuntime,
     provision_execution_egress_proxy,
     remove_execution_proxy_token_file,
+    run_codex_container_agent,
 )
+from narrow.credential_broker import CredentialLease
 from narrow.container_lifecycle import (
     AgentNetwork,
     egress_proxy_container_labels,
@@ -169,6 +172,77 @@ class ContainerEgressTests(unittest.TestCase):
         with self.assertRaisesRegex(NarrowError, "unsafe proxy capability"):
             remove_execution_proxy_token_file(self.store, TASK, EXECUTION)
         self.assertTrue(target.exists())
+
+
+    @unittest.skipIf(os.name == "nt" or os.getuid() == 0, "Requires a non-root POSIX host identity")
+    def test_codex_container_agent_wrapper_wires_manifest_lease_proxy_and_supervisor(self):
+        from types import SimpleNamespace
+        from unittest.mock import ANY
+
+        with tempfile.TemporaryDirectory() as folder:
+            state_dir = Path(folder) / ".narrow"
+            state_dir.mkdir()
+            self.store.state_dir = state_dir
+            workspace = Path(folder) / "workspace"
+            workspace.mkdir()
+            task_home = state_dir / "runtime" / "agent" / TASK / EXECUTION / "home"
+            manifest_path = state_dir / "runtime" / "agent" / TASK / EXECUTION / "policy.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text("{}", encoding="utf-8")
+            secret_path = state_dir / "runtime" / "agent" / TASK / EXECUTION / "credentials" / ("codex-" + "d" * 32 + ".secret")
+            secret_path.parent.mkdir(parents=True, exist_ok=True)
+            secret_path.write_bytes(b"secret")
+            secret_path.chmod(0o400)
+            lease = CredentialLease(
+                path=secret_path,
+                state_dir=state_dir,
+                provider="codex",
+                environment_name="OPENAI_API_KEY",
+                task_id=TASK,
+                execution_id=EXECUTION,
+                expires_at=9999999999.0,
+                sha256="0" * 64,
+            )
+            runtime = EgressProxyRuntime(
+                container_id=CONTAINER_ID,
+                container_name="narrow-egress-proxy-test",
+                token="x" * 48,
+                token_path=state_dir / "proxy.token",
+                agent_network=self.agent_network,
+                uplink_network=self.uplink_network,
+                image=IMAGE,
+                allowed_hosts=("api.openai.com",),
+            )
+            task = {"id": TASK}
+            with patch("narrow.policy_manifest.write_policy_manifest", return_value=SimpleNamespace(path=manifest_path)), patch(
+                "narrow.credential_broker.issue_credential_lease", return_value=lease
+            ) as issue, patch(
+                "narrow.container_egress.provision_execution_egress_proxy", return_value=runtime
+            ) as provision, patch(
+                "narrow.container_egress.task_workspace", return_value=workspace
+            ), patch(
+                "narrow.agent_runtime.build_docker_agent_command", return_value=["docker", "run", "restricted"]
+            ) as build, patch(
+                "narrow.container_supervisor.run_container_agent", return_value=(0, "container-ok")
+            ) as run:
+                code, output = run_codex_container_agent(
+                    self.store,
+                    TASK,
+                    EXECUTION,
+                    ["codex", "exec", "--json", "--cd", str(workspace), "--sandbox", "workspace-write", "--ask-for-approval", "never", "-"],
+                    agent_image=IMAGE,
+                    proxy_image=IMAGE,
+                    allowed_hosts=["api.openai.com"],
+                    stdin_text="bounded prompt",
+                )
+            self.assertEqual((code, output), (0, "container-ok"))
+            issue.assert_called_once_with(self.store, "codex", TASK, EXECUTION)
+            provision.assert_called_once_with(self.store, TASK, EXECUTION, IMAGE, ["api.openai.com"])
+            build.assert_called_once()
+            run.assert_called_once()
+            self.assertEqual(run.call_args.kwargs["stdin_text"], "bounded prompt")
+            self.assertEqual(run.call_args.kwargs["credential_lease"], lease)
+            self.assertEqual(run.call_args.args[0], ["docker", "run", "restricted"])
 
 
 if __name__ == "__main__":
