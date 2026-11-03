@@ -412,6 +412,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
         allow_subagents=args.allow_subagents,
         effort=args.effort,
         ultracode=args.ultracode,
+        container_agent=args.container_agent,
     )
 
 
@@ -834,6 +835,7 @@ def build_parser() -> argparse.ArgumentParser:
     drive.add_argument("--yes-checks", action="store_true", help="Approve configured checks without prompting; use only after reviewing them.")
     drive.add_argument("--allow-subagents", action="store_true", help="Opt in to Claude Agent/task tools. Subagents share the task workspace; NARROW monitors scope but this is not a separate sandbox.")
     drive.add_argument("--ultracode", action="store_true", help="Opt in to Claude Code dynamic multi-agent workflows (requires --allow-subagents; higher autonomy and cost).")
+    drive.add_argument("--container-agent", action="store_true", help="Opt in to the experimental POSIX Docker Codex runtime. Requires digest-pinned agent_container images, OPENAI_API_KEY, and exact egress allowlist in .narrow/config.json.")
     drive.set_defaults(func=cmd_drive)
 
     providers = sub.add_parser("providers", help="Detect supported Claude Code and Codex CLI installations.")
