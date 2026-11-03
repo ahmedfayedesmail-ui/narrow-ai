@@ -49,7 +49,17 @@ python -m pip install .
 narrow --version
 ```
 
-The v0.5.0 Alpha is currently distributed as source: clone this repository or use GitHub's **Code → Download ZIP** for the exact branch snapshot. There is no PyPI package or tagged GitHub Release yet.
+The **v0.5.0 Alpha GitHub prerelease is published** with the `v0.5.0` tag. It is currently distributed as source; there is no PyPI package yet. For a reproducible install, check out the release tag explicitly:
+
+```bash
+git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
+cd narrow-ai
+git checkout v0.5.0
+python -m pip install .
+narrow --version
+```
+
+See the [NARROW v0.5.0 Alpha release](https://github.com/ahmedfayedesmail-ui/narrow-ai/releases/tag/v0.5.0) for the published release notes and source archives.
 
 For development and tests:
 
@@ -207,7 +217,8 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 ## Current validation
 
 - The local unit suite covers the CLI, task creation, path/snapshot gates, provider adapters with fakes, dashboard, bounded repair/handoff, and task locks.
-- GitHub Actions run [#41644004390](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41642840892) passed on the reviewed PR snapshot: Ubuntu/Python 3.11–3.14 full suites and demos, macOS/Python 3.13 full suite and demos, Windows Server 2025/Python 3.13 lock tests and demos, plus wheel/sdist build and clean wheel installation.
+- The seven-job release-candidate validation is recorded in [QA run #41644644961](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41644644961): Ubuntu/Python 3.11–3.14 full suites and demos, macOS/Python 3.13 full suite and demos, Windows Server 2025/Python 3.13 lock tests and demos, plus wheel/sdist build and clean wheel installation. This run validates the documented release-candidate snapshot; it is not an authenticated provider or independent security test.
+- The owner-confirmed GitHub release publisher completed successfully in [workflow run #41651002381](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41651002381), creating the `v0.5.0` Alpha prerelease from main commit `5eb6a469c5c0317e2b9528dc2dcbfafd0fae5228`.
 - The run also created, extracted, and tested a source archive from the exact checked-out commit; the tested archive is attached to the workflow run as an artifact. GitHub's Download ZIP is the current-source download route.
 - The deterministic demo exercises successful repair and bounded failure with a fake agent. It is not an authenticated provider test.
 - Authenticated Claude/Codex end-to-end sessions, provider-version support guarantees, Windows inherited-handle crash lifetime, full OS-sandbox escape testing, and independent security review remain open gates.
