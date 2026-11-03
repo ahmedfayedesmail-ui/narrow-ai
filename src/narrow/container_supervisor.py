@@ -224,6 +224,7 @@ def _run_container_agent(
         "/home/narrow": False,
         "/run/narrow/policy.json": True,
         "/run/secrets/provider-api-key": True,
+        "/run/secrets/proxy-token": True,
     }
     if set(mount_targets) != set(expected_mount_modes):
         raise NarrowError("Docker agent must mount only its workspace, task home, policy manifest, and provider credential.")
@@ -232,6 +233,9 @@ def _run_container_agent(
         "/home/narrow": task_home,
         "/run/narrow/policy.json": manifest_path,
         "/run/secrets/provider-api-key": secret_path,
+        "/run/secrets/proxy-token": (
+            store.state_dir / "runtime" / "agent" / task_id / expected_execution / "proxy.token"
+        ),
     }
     for target, expected_source in expected_sources.items():
         try:
@@ -253,8 +257,8 @@ def _run_container_agent(
         if mount_targets[target][1] is not readonly:
             raise NarrowError("Docker policy and credential mounts must be read-only; workspace and task home must be writable.")
     allowed_env = {
-        "HOME", "PATH", "LANG", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
-        "NO_PROXY", "no_proxy", "NARROW_POLICY_MANIFEST", "NARROW_TASK_ID",
+        "HOME", "PATH", "LANG", "NO_PROXY", "no_proxy",
+        "NARROW_POLICY_MANIFEST", "NARROW_TASK_ID",
         "NARROW_EXECUTION_ID", "NARROW_CONTAINER_EVENT_SPOOL",
     }
     env_items = [
@@ -278,23 +282,18 @@ def _run_container_agent(
     }
     if any(env_values.get(key) != value for key, value in expected_env.items()):
         raise NarrowError("Docker agent environment does not match the task-scoped runtime contract.")
-    proxy = env_values.get("HTTP_PROXY", "")
-    if (
-        proxy != env_values.get("HTTPS_PROXY")
-        or proxy != env_values.get("http_proxy")
-        or proxy != env_values.get("https_proxy")
-        or not re.fullmatch(r"http://narrow:[A-Za-z0-9_-]{32,128}@narrow-egress-proxy:3128", proxy)
-    ):
-        raise NarrowError("Docker agent must use the authenticated per-execution NARROW egress proxy.")
+    if any(key in env_values for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy", "ALL_PROXY", "all_proxy")):
+        raise NarrowError("Proxy credentials must be read from the private mounted token file, not Docker CLI environment arguments.")
     if command.count("--entrypoint") != 1 or command[command.index("--entrypoint") + 1] != "python":
         raise NarrowError("Docker agent must start through the NARROW in-container entrypoint.")
     validate_agent_image(command[image_index])
-    if command[image_index + 1:image_index + 8] != [
+    if command[image_index + 1:image_index + 10] != [
         "-m", "narrow.agent_entrypoint", "--provider", "codex",
-        "--credential-file", "/run/secrets/provider-api-key", "--",
+        "--credential-file", "/run/secrets/provider-api-key",
+        "--proxy-token-file", "/run/secrets/proxy-token", "--",
     ]:
-        raise NarrowError("Docker agent must invoke the constrained Codex credential entrypoint.")
-    normalize_provider_argv("codex", command[image_index + 8:])
+        raise NarrowError("Docker agent must invoke the constrained Codex credential and proxy-token entrypoint.")
+    normalize_provider_argv("codex", command[image_index + 10:])
     if "--workdir" not in command or command[command.index("--workdir") + 1:command.index("--workdir") + 2] != ["/workspace"]:
         raise NarrowError("Docker agent working directory must be the virtual /workspace.")
     if "--user" not in command or not re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", command[command.index("--user") + 1]):
