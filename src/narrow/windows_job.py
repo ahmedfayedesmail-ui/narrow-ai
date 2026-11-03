@@ -7,6 +7,7 @@ the kill-on-close Job, not briefly alive outside it.
 from __future__ import annotations
 
 import ctypes
+import inspect
 import os
 import subprocess
 import sys
@@ -19,6 +20,8 @@ JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
 EXTENDED_STARTUPINFO_PRESENT = 0x00080000
 CREATE_UNICODE_ENVIRONMENT = 0x00000400
+CREATE_SUSPENDED = 0x00000004
+CREATE_BREAKAWAY_FROM_JOB = 0x01000000
 STARTF_USESTDHANDLES = 0x00000100
 PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002
 PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002000D
@@ -203,13 +206,29 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
         super().__init__(*args, **kwargs)
 
     def _execute_child(self, *parameters: Any) -> None:  # CPython Popen internal hook
-        if len(parameters) < 16:
-            raise RuntimeError("Unsupported CPython Popen._execute_child signature; refusing an unsafe Windows launch.")
+        try:
+            bound = inspect.signature(subprocess.Popen._execute_child).bind(self, *parameters)
+        except (TypeError, ValueError) as exc:
+            raise RuntimeError(
+                "Unsupported CPython Popen._execute_child signature; refusing an unsafe Windows launch."
+            ) from exc
+        child = bound.arguments
+        required = {
+            "args", "executable", "preexec_fn", "close_fds", "pass_fds",
+            "cwd", "env", "startupinfo", "creationflags", "shell",
+            "p2cread", "p2cwrite", "c2pread", "c2pwrite", "errread", "errwrite",
+        }
+        if not required.issubset(child):
+            raise RuntimeError("CPython changed the Windows Popen launch contract; refusing an unsafe launch.")
         (
             args, executable, preexec_fn, close_fds, pass_fds, cwd, env,
             startupinfo, creationflags, shell, p2cread, p2cwrite,
             c2pread, c2pwrite, errread, errwrite,
-        ) = parameters[:16]
+        ) = (child[name] for name in (
+            "args", "executable", "preexec_fn", "close_fds", "pass_fds",
+            "cwd", "env", "startupinfo", "creationflags", "shell",
+            "p2cread", "p2cwrite", "c2pread", "c2pwrite", "errread", "errwrite",
+        ))
 
         if preexec_fn is not None or pass_fds:
             raise ValueError("NARROW atomic Windows launch does not support preexec_fn or pass_fds.")
@@ -217,6 +236,10 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
             raise ValueError("NARROW atomic Windows launch requires shell=False.")
         if not close_fds:
             raise ValueError("NARROW atomic Windows launch requires close_fds=True.")
+        if int(creationflags) & CREATE_BREAKAWAY_FROM_JOB:
+            raise ValueError("CREATE_BREAKAWAY_FROM_JOB is prohibited by NARROW's Windows supervisor.")
+        if int(creationflags) & CREATE_SUSPENDED:
+            raise ValueError("CREATE_SUSPENDED is incompatible with NARROW's atomic Windows launcher.")
 
         if isinstance(args, str):
             command_line = args
