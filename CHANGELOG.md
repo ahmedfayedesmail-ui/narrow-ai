@@ -100,3 +100,19 @@ All notable changes to NARROW are documented here.
 - Generic CLI agent wrapper, compact handoff, explicit check approval, and bounded repair loop.
 - Snapshot-bound checks and human acceptance gate.
 - Initial security and threat model.
+
+## Post-v0.5.1 container runtime groundwork (unreleased)
+
+### Added
+- Task/execution-scoped JSON policy manifests with virtual `/workspace` paths and explicit integrity validation.
+- POSIX provider-credential leases, a constrained in-container Codex entrypoint, and digest-pinned Codex image/argument validation.
+- A deterministic Docker agent command builder with explicit mounts, non-root identity, read-only root filesystem, bounded resources, no-new-privileges, and per-execution proxy capability settings.
+- A POSIX/local-Docker host supervisor with bounded JSONL event streaming, exact ownership labels, credential revocation, cleanup, and untrusted hook-telemetry import.
+- An operator-invoked `narrow recover-agent` command for one explicitly selected stale task/execution.
+- Ownership-checked lifecycle primitives for execution-specific internal agent networks, egress-proxy sidecars, and a separate proxy uplink network.
+
+### Security and maturity limits
+- The egress proxy itself remains an experimental CONNECT primitive. Sidecar creation, network attachment, readiness verification, and default-route/bypass enforcement are not yet implemented.
+- The Docker agent command builder and supervisor are not integrated into the standard `narrow drive` workflow. Native provider execution remains unchanged.
+- The container runtime is not a supported end-to-end sandbox. Do not claim arbitrary-egress blocking, host-crash containment, Windows support, or production readiness.
+- This work is pre-release engineering groundwork; it does not change the published v0.5.1 package or its Alpha maturity classification.
