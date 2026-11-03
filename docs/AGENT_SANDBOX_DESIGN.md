@@ -114,6 +114,15 @@ guard, not a security boundary against a daemon administrator. Durable
 execution leases, host-crash reconciliation, network cleanup, and integration
 with an actual agent launcher remain outstanding.
 
+The same module can now create a per-execution Docker/Podman bridge network
+with `--internal` and exact NARROW task/execution labels. It verifies the
+engine's inspected result is an internal bridge before returning it. Cleanup
+will refuse to remove that network while any matching NARROW agent container
+still exists, and it re-inspects ownership before removal. This is only the
+isolated network primitive: a launcher still needs to attach the agent and a
+separately controlled egress proxy to the correct network topology, block
+direct routes, persist execution state, and reconcile after host crashes.
+
 ## Required acceptance tests
 
 - The agent can modify only the isolated task copy; a sentinel in the original
