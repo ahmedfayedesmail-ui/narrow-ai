@@ -35,7 +35,7 @@ class ContainerSupervisorTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX Docker supervision only")
     def test_rejects_unapproved_volume_syntax_before_start(self):
         with patch("narrow.container_supervisor.subprocess.Popen") as popen:
-            with self.assertRaisesRegex(NarrowError, "unsupported Docker flag"):
+            with self.assertRaisesRegex(NarrowError, "forbidden host-access"):
                 run_container_agent(
                     ["docker", "run", "-v", "/:/workspace"],
                     store=None, credential_lease=None, task_id="task_1",
@@ -47,7 +47,7 @@ class ContainerSupervisorTests(unittest.TestCase):
     @unittest.skipIf(os.name == "nt", "POSIX Docker supervision only")
     def test_rejects_host_env_file_syntax_before_start(self):
         with patch("narrow.container_supervisor.subprocess.Popen") as popen:
-            with self.assertRaisesRegex(NarrowError, "unsupported Docker flag"):
+            with self.assertRaisesRegex(NarrowError, "forbidden host-access"):
                 run_container_agent(
                     ["docker", "run", "--env-file", "/tmp/host.env"],
                     store=None, credential_lease=None, task_id="task_1",
