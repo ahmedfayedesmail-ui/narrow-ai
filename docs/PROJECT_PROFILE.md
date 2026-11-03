@@ -4,7 +4,7 @@
 
 **Category:** Local-first AI coding-agent task supervisor / execution coordination layer.
 
-**Project status:** Public Alpha — v0.5.1. Not a stable release and not an OS sandbox. Feature-branch container-agent work is opt-in and is not included in the published package.
+**Project status:** Public Beta preview — v0.6.0b1 (unreleased source on `main`). Not a stable release and not a universal OS sandbox. The published v0.5.1 PyPI package remains Alpha and unchanged.
 
 ## What it is
 
@@ -55,21 +55,19 @@ For untrusted repositories, generated code, or unattended execution, use a separ
 
 ## Current validation
 
-The published `v0.5.1` package keeps the previously validated Alpha runtime and contains no enabled agent-container runtime. Its feature-branch changes are validated separately before any later Beta release.
-
-- Ubuntu with Python 3.11, 3.12, 3.13, and 3.14.
-- macOS with Python 3.13.
-- Windows Server 2025 repaired and blocked demo workflows, task-lock tests, and CLI smoke checks.
-- Wheel and source-distribution build, plus clean wheel installation.
-
-Historical v0.5.0 CI results are evidence for that earlier Alpha source snapshot only. They are not authenticated live Claude/Codex sessions, real agent-container E2E, or an independent security audit. See the [QA record](QA-RESULTS-v0.5.0.md).
+- PR #16 and PR #17 are merged into `main`. The Beta source includes discovery, human-reviewed task proposals, opt-in containerized verification, and the opt-in Codex container/proxy runtime.
+- On PR #16 head `d0cb99a`, workflow run [#41716857214](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41716857214) passed the Ubuntu/Python 3.11–3.14 matrix, Windows repaired/blocked demo jobs, and package build/install job. The macOS job was still queued at the recorded check.
+- The merged-main workflow run [#41717982650](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41717982650) was queued when this Beta snapshot was recorded. It includes the Docker proxy-only egress acceptance test; no passing result is claimed yet.
+- No authenticated live Codex account session was performed. The project owner has explicitly decided that a live session is not required for the Beta label. This profile does not claim that live provider execution was tested.
+- Existing CI and deterministic fake-agent tests are not an independent security audit, universal sandbox assessment, or proof of semantic correctness.
+- The published `v0.5.1` PyPI package remains Alpha and unchanged. Android/Termux is unsupported and unvalidated.
 
 ## Installation and demo
 
 ```bash
 git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
 cd narrow-ai
-git checkout v0.5.1
+git checkout main
 python -m pip install .
 narrow --version
 ```
@@ -85,7 +83,7 @@ The demo uses a fake local agent and deliberately stops for human review; it is 
 
 ## Maturity and release gates
 
-NARROW remains Alpha. The experimental Codex container profile is POSIX/local-Docker only and is not a supported universal agent sandbox. Before announcing Beta, the branch must pass the real Docker proxy-only network acceptance job and broader runtime tests; an authenticated Codex session, cross-platform fault-injection, adversarial boundary testing, and independent security review remain additional gates.
+NARROW is in public Beta preview, not stable. The optional Codex container profile is POSIX/local-Docker only, remains explicitly opt-in, and is not a universal agent sandbox. A live authenticated Codex session is not a Beta-label prerequisite by the project owner's decision, and none is claimed. The Docker proxy-only egress acceptance job remains pending a passing result before that specific container profile can be described as validated. Cross-platform fault-injection, adversarial boundary testing, and independent security review remain open maturity gates before stable release.
 
 The next milestone is evidence-led user testing and closure of these gates—not feature expansion for its own sake.
 
