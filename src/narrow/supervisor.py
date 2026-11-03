@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .locks import inherited_lock_options, task_execution_lock
+from .sandbox import cleanup_container, prepare_sandbox_command
+from .windows_job import spawn_process_with_job
 
 from .core import (
     NarrowError,
@@ -98,6 +100,9 @@ def run_verification_command(
     timeout: int,
     output_limit: int = 64 * 1024,
     _lock_fd: int | None = None,
+    sandbox: dict[str, Any] | None = None,
+    sandbox_cache_root: Path | None = None,
+    sandbox_cache_scope: str | None = None,
 ) -> tuple[int, str]:
     """Run a configured check with bounded retained output and best-effort tree cleanup.
 
@@ -116,10 +121,15 @@ def run_verification_command(
         if key.startswith("GIT_"):
             check_env.pop(key, None)
     check_env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0"})
+    sandbox_plan = prepare_sandbox_command(
+        command, cwd, sandbox or {"mode": "off"},
+        cache_root=sandbox_cache_root, cache_scope=sandbox_cache_scope,
+    )
+    execution_command = sandbox_plan.command if sandbox_plan else command
     try:
         with inherited_lock_options(_lock_fd) as lock_options:
-            process = subprocess.Popen(
-                command,
+            process, process_job = spawn_process_with_job(
+                execution_command,
                 cwd=cwd,
                 env=check_env,
                 stdin=subprocess.DEVNULL,
@@ -162,6 +172,8 @@ def run_verification_command(
         exit_code = process.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         _stop_process_tree(process)
+        if sandbox_plan is not None:
+            cleanup_container(sandbox_plan.engine, sandbox_plan.container_name)
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
@@ -173,6 +185,8 @@ def run_verification_command(
         exit_code = 124
     except KeyboardInterrupt:
         _stop_process_tree(process)
+        if sandbox_plan is not None:
+            cleanup_container(sandbox_plan.engine, sandbox_plan.container_name)
         try:
             process.wait(timeout=5)
         except subprocess.TimeoutExpired:
@@ -186,6 +200,8 @@ def run_verification_command(
                 process.stdout.close()
             except OSError:
                 pass
+        if process_job is not None:
+            process_job.close()
 
     with capture_lock:
         output = bytes(captured).decode("utf-8", errors="replace")
@@ -352,7 +368,7 @@ def run_agent(
         })
     try:
         with inherited_lock_options(_lock_fd) as lock_options:
-            process = subprocess.Popen(
+            process, process_job = spawn_process_with_job(
                 command,
                 cwd=worktree,
                 env=env,
@@ -516,6 +532,8 @@ def run_agent(
             process.stdout.close()
         store.add_event(task_id, "AGENT_RUN_INTERRUPTED", {"reason": "User interrupted the supervised run."})
         store.update_status(task_id, "NEEDS_REVIEW")
+        if process_job is not None:
+            process_job.close()
         print("\nNARROW stopped the agent and preserved the isolated worktree and task journal.")
         return 130
 
@@ -532,6 +550,8 @@ def run_agent(
                 pass
         store.add_event(task_id, "AGENT_RUN_STOPPED", {"reason": stop_reason, "changed_paths": last_paths})
         store.update_status(task_id, "NEEDS_REVIEW")
+        if process_job is not None:
+            process_job.close()
         print(f"\nNARROW stopped the agent: {stop_reason}")
         return 125
 
@@ -545,6 +565,8 @@ def run_agent(
             process.stdout.close()
         except OSError:
             pass
+    if process_job is not None:
+        process_job.close()
     if callback_errors:
         store.update_status(task_id, "NEEDS_REVIEW")
         store.add_event(task_id, "AGENT_OUTPUT_CAPTURE_FAILED", {"reason": callback_errors[0]})

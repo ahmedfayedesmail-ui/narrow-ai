@@ -16,7 +16,7 @@ It works with the coding agents you already have. NARROW itself does not require
 - **Inherited lease handle:** the first-level agent/check receives the lock handle. On POSIX, the lease remains held if NARROW exits unexpectedly while that child remains alive.
 - **Public source tree:** source, tests, and documentation are checked in at the repository root; CI builds and tests an exact-commit source archive for each validated release candidate.
 
-This is coordination, not a machine sandbox. Detached descendants may outlive their parent process, and the Windows crash-lifetime path still needs dedicated validation. See [the v0.5 release notes](docs/RELEASE-NOTES-v0.5.0.md).
+This is coordination, not a universal machine sandbox. Windows supervised processes are created inside a kill-on-close Job Object on supported Windows versions, but forced-termination and deep-descendant behavior still needs dedicated Windows validation. See [the v0.5 release notes](docs/RELEASE-NOTES-v0.5.0.md).
 
 ## What's new in v0.4.0
 
@@ -25,6 +25,38 @@ This is coordination, not a machine sandbox. Detached descendants may outlive th
 - **Model effort controls:** `--effort low|medium|high|xhigh` for Claude Code and Codex CLI, plus Claude-only `max` where the selected model/account supports it. Provider model support remains authoritative.
 - **Richer Claude telemetry:** optional Task/Agent tools, task-created/completed and subagent lifecycle hooks, and tool-failure metadata. Subagents require explicit `--allow-subagents` opt-in.
 - **Compatibility diagnostics:** opt-in provider version probing reports when Claude Code should be upgraded for full task/subagent telemetry.
+
+## Experimental development features on the feature branch
+
+The current development branch adds three opt-in capabilities that are not part of the published v0.5.1 package:
+
+- Project discovery: narrow discover inspects common project manifests and suggests test commands. It never runs discovered commands. Use narrow discover --apply to review and add new suggestions to .narrow/config.json.
+- Task proposals: narrow propose "Fix the login timeout" drafts a contract without creating a task. Add --ollama to use a model already installed in local Ollama. The model request goes only to 127.0.0.1 and may include a small, bounded selection of source files; it is optional. Every proposed path and criterion requires human review.
+- Containerized verification: setting verification_sandbox.mode to auto, docker, or podman wraps configured checks in a local container with no network, read-only container root, dropped Linux capabilities, no-new-privileges, a PID limit, memory/CPU limits, and only the isolated task workspace mounted. The image must already exist locally; NARROW does not pull images. The default remains off for backward compatibility, so existing checks still run with the user's permissions until this is explicitly configured.
+
+For the experimental container profile, build a project-specific image that includes all reviewed test dependencies. The sample under examples/containers is only a small Python/pytest starter. A container runtime and its daemon remain part of the host trust boundary; this is not equivalent to a Firecracker microVM or independent security review.
+
+Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md, docs/SANDBOXING.md, and docs/AGENT_SANDBOX_DESIGN.md for installation, configuration, and the remaining agent-container acceptance gates.
+
+The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created suspended inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; NARROW verifies Job membership before resuming the initial thread. There is no post-creation assignment window or suspended child outside the Job. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
+
+## Try the experimental workflow (feature branch only)
+
+From an initialized project, `narrow discover` reads common project manifests and prints likely test commands without running them. Review and add missing suggestions with `narrow discover --apply`.
+
+To draft a task contract from a plain-language goal and review it before task creation:
+
+```bash
+narrow start --goal "Fix the login timeout" --auto-contract
+```
+
+For an optional local Ollama proposal (only if Ollama and the chosen model are already installed):
+
+```bash
+narrow start --goal "Fix the login timeout" --auto-contract --ollama
+```
+
+The contract proposal does not silently approve scope. NARROW prints the proposed paths and acceptance criteria and requires an explicit confirmation. Use `narrow propose "..." --json` to inspect a proposal without creating a task. After task creation, use `narrow contract-history --task <id>` to compare the generated proposal with the human-approved contract.
 
 ## Core workflow
 

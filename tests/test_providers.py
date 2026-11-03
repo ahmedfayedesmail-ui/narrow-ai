@@ -12,15 +12,18 @@ from pathlib import Path
 from unittest.mock import patch
 
 from narrow.cli import _render_work_receipt_markdown, _work_receipt, build_parser
-from narrow.core import Store, classify_paths, create_task, init_project
+from narrow.core import NarrowError, Store, classify_paths, create_task, init_project
 from narrow.hooks import _validate_direct_write, handle_claude_hook
 from narrow.providers import (
     ClaudeCodeAdapter,
     CodexCliAdapter,
+    ProviderAdapter,
     claude_settings_path,
     latest_provider_session_id,
     make_event_callback,
     provider_status,
+    get_adapter,
+    register_adapter,
 )
 from narrow.supervisor import run_agent
 
@@ -501,6 +504,33 @@ class ProviderAdapterTests(unittest.TestCase):
         self.assertTrue(doctor_args.versions)
         with self.assertRaises(SystemExit):
             build_parser().parse_args(["drive"])
+
+
+class ExampleThirdPartyAdapter(ProviderAdapter):
+    name = "test-provider-plugin-unit"
+    executable = "example-agent"
+
+    def build_command(self, **kwargs):
+        return ["example-agent"]
+
+    def parse_event(self, event):
+        return None
+
+
+class ProviderPluginRegistrationTests(unittest.TestCase):
+    def test_registers_third_party_adapter(self):
+        adapter = ExampleThirdPartyAdapter()
+        register_adapter(adapter)
+        self.assertIs(get_adapter("test-provider-plugin-unit"), adapter)
+
+    def test_does_not_allow_plugins_to_replace_builtins(self):
+        with self.assertRaises(NarrowError):
+            register_adapter(type("ReplaceClaude", (ProviderAdapter,), {
+                "name": "claude",
+                "executable": "claude",
+                "build_command": lambda self, **kwargs: ["claude"],
+                "parse_event": lambda self, event: None,
+            })())
 
 
 if __name__ == "__main__":

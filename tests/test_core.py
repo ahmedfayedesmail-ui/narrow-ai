@@ -22,6 +22,7 @@ from narrow.core import (
     make_handoff,
     redact,
     snapshot_hash,
+    verify_check_run_signature,
 )
 
 
@@ -622,6 +623,28 @@ class DriveTests(unittest.TestCase):
         success, problems = finish_task(self.store, self.task["id"])
         self.assertFalse(success)
         self.assertTrue(any("human confirmation" in item for item in problems))
+
+
+    def test_check_evidence_signature_detects_database_row_tampering(self):
+        task = self.task
+        workspace = Path(task["worktree"])
+        snapshot = snapshot_hash(workspace)
+        save_check_run(
+            self.store, task["id"], "unit", ["python", "-m", "pytest"],
+            snapshot, 0, 42, "all tests passed",
+        )
+        with self.store.connect() as db:
+            row = db.execute(
+                "SELECT * FROM check_runs WHERE task_id=? ORDER BY id DESC LIMIT 1",
+                (task["id"],),
+            ).fetchone()
+        self.assertTrue(verify_check_run_signature(self.store, row))
+        with self.store.connect() as db:
+            db.execute("UPDATE check_runs SET output_tail=? WHERE id=?", ("forged success", row["id"]))
+        with self.store.connect() as db:
+            changed = db.execute("SELECT * FROM check_runs WHERE id=?", (row["id"],)).fetchone()
+        self.assertFalse(verify_check_run_signature(self.store, changed))
+
 
 
 if __name__ == "__main__":

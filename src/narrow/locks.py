@@ -88,15 +88,23 @@ def inherited_lock_options(lock_fd: int | None) -> Iterator[dict[str, object]]:
     if lock_fd is None:
         yield {}
     elif os.name == "nt":
+        import msvcrt
+        import subprocess
+
         try:
-            os.set_inheritable(lock_fd, True)
-        except OSError as exc:
-            raise NarrowError(f"Could not pass the execution lease to the child: {exc}") from exc
+            # STARTUPINFO.handle_list expects Win32 HANDLE values, not CRT fds.
+            # Only this explicit task-lock handle is inherited by the child.
+            lock_handle = msvcrt.get_osfhandle(lock_fd)
+            os.set_handle_inheritable(lock_handle, True)
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.lpAttributeList = {"handle_list": [lock_handle]}
+        except (OSError, AttributeError, ValueError) as exc:
+            raise NarrowError(f"Could not prepare the task lease handle for the child: {exc}") from exc
         try:
-            yield {"close_fds": False}
+            yield {"close_fds": True, "startupinfo": startupinfo}
         finally:
             try:
-                os.set_inheritable(lock_fd, False)
+                os.set_handle_inheritable(lock_handle, False)
             except OSError:
                 pass
     else:

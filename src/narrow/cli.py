@@ -33,13 +33,17 @@ from .core import (
     snapshot_hash,
     unsafe_workspace_links,
     task_workspace,
+    write_internal_file,
+    cache_root,
 )
 from .supervisor import run_agent, run_verification_command
 from .drive import drive_task
 from .hooks import run_hook_cli
 from .providers import provider_status
+from .discovery import discover_project, propose_contract
 from .dashboard import run_dashboard
 from .locks import task_execution_lock
+from .sandbox import prepare_sandbox_command
 
 
 def _find_root() -> Path:
@@ -70,8 +74,83 @@ def cmd_init(_: argparse.Namespace) -> int:
 
 def cmd_start(args: argparse.Namespace) -> int:
     root = find_repo_root()
+    title = args.title
+    allowed = list(args.allow)
+    denied = list(args.deny)
+    acceptance = list(args.accept)
+
+    proposal = None
+    if args.ollama and not args.auto_contract:
+        raise NarrowError("--ollama requires --auto-contract.")
+    if args.auto_contract:
+        proposal = propose_contract(
+            root,
+            args.goal,
+            ollama_model=args.model if args.ollama else None,
+        )
+        title = title or proposal["title"]
+        allowed = allowed or proposal["allow"]
+        denied = denied or proposal["deny"]
+        acceptance = acceptance or proposal["accept"]
+        print("NARROW generated a task proposal. Review every path and criterion:")
+        print("Title: " + title)
+        print("Goal: " + args.goal)
+        print("Allowed: " + (", ".join(allowed) or "(none)"))
+        print("Denied: " + (", ".join(denied) or "(none)"))
+        for index, item in enumerate(acceptance, 1):
+            print(f"  {index}. {item}")
+        print("Suggested checks:")
+        for check in proposal["checks"]:
+            print(f"  {check['name']}: {shlex.join(check['command'])}")
+        print("No task has been created yet.")
+        try:
+            answer = input("Create this task with the proposed contract? [y/N] ").strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in {"y", "yes"}:
+            print("Cancelled. No task was created.")
+            return 1
+
+    if not title:
+        raise NarrowError("Provide --title or use --auto-contract.")
+    if not allowed:
+        raise NarrowError("Provide at least one --allow path or use --auto-contract.")
+    if not acceptance:
+        raise NarrowError("Provide at least one --accept criterion or use --auto-contract.")
     store = Store(root)
-    task = create_task(store, args.title, args.goal, args.allow, args.deny, args.accept)
+    task = create_task(store, title, args.goal, allowed, denied, acceptance)
+    approved_contract = {
+        "title": title,
+        "goal": args.goal,
+        "allow": allowed,
+        "deny": denied,
+        "accept": acceptance,
+    }
+    if proposal is not None:
+        proposed_contract = {
+            "title": proposal["title"],
+            "goal": proposal["goal"],
+            "allow": proposal["allow"],
+            "deny": proposal["deny"],
+            "accept": proposal["accept"],
+        }
+        store.add_event(task["id"], "CONTRACT_VERSION_RECORDED", {
+            "version": 1, "label": "generated proposal", "source": proposal["generation"],
+            "contract": proposed_contract, "changes": {},
+        })
+        changes = {
+            key: {"from": proposed_contract[key], "to": approved_contract[key]}
+            for key in approved_contract if proposed_contract[key] != approved_contract[key]
+        }
+        store.add_event(task["id"], "CONTRACT_VERSION_RECORDED", {
+            "version": 2, "label": "human-approved contract", "source": "human-confirmed",
+            "parent_version": 1, "contract": approved_contract, "changes": changes,
+        })
+    else:
+        store.add_event(task["id"], "CONTRACT_VERSION_RECORDED", {
+            "version": 1, "label": "manually defined contract", "source": "user",
+            "contract": approved_contract, "changes": {},
+        })
     print("Task created in an isolated repository copy.")
     print(f"Task: {_task_label(task)}")
     print(f"Isolated workspace: {task['worktree']}")
@@ -85,12 +164,124 @@ def cmd_start(args: argparse.Namespace) -> int:
 
 
 
+def cmd_contract_history(args: argparse.Namespace) -> int:
+    """Show the proposed and approved task-contract versions and field-level drift."""
+    store = _store()
+    task = store.get_task(args.task)
+    with store.connect() as db:
+        rows = db.execute(
+            "SELECT payload_json,created_at FROM events WHERE task_id=? AND event_type='CONTRACT_VERSION_RECORDED' ORDER BY id",
+            (task["id"],),
+        ).fetchall()
+    versions = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        item = dict(payload)
+        item["created_at"] = row["created_at"]
+        versions.append(item)
+    if args.json:
+        print(json.dumps({"schema": "narrow.contract-history.v1", "task_id": task["id"], "versions": versions}, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Contract history — {task['title']} [{task['id']}]")
+    if not versions:
+        print("No versioned contract records exist for this task.")
+        return 0
+    for item in versions:
+        print(f"\nVersion {item.get('version')}: {item.get('label')} ({item.get('created_at')})")
+        if item.get("changes"):
+            for field, change in item["changes"].items():
+                print(f"  {field}: {json.dumps(change.get('from'), ensure_ascii=False)} -> {json.dumps(change.get('to'), ensure_ascii=False)}")
+        else:
+            print("  Initial contract")
+    print("\nThe approved task contract remains immutable for this task. Create a new task to change its scope.")
+    return 0
+
+
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Inspect project manifests and optionally add discovered checks to config."""
+    root = find_repo_root()
+    result = discover_project(root)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(f"NARROW project discovery — {root}")
+        print("Languages: " + (", ".join(result["languages"]) or "not identified"))
+        print("Test frameworks: " + (", ".join(result["frameworks"]) or "not identified"))
+        print("Suggested checks:")
+        for item in result["checks"]:
+            print(f"  {item['name']}: {shlex.join(item['command'])}")
+            print(f"    {item['reason']}")
+        print("Suggested allowed paths: " + (", ".join(result["suggested_allow"]) or "none; define a narrow allowlist manually"))
+        print("Suggested denied paths: " + ", ".join(result["suggested_deny"]))
+        if result["scan_limit_reached"]:
+            print("Warning: file scan limit reached; discovery may be incomplete.")
+    if not args.apply:
+        print("Read-only discovery. No commands were run and no config was changed.")
+        return 0
+    if not result["checks"]:
+        print("No recognizable test command was found; configuration was not changed.")
+        return 0
+    init_project(root)
+    config = load_config(root)
+    existing = config.setdefault("checks", {})
+    additions = {item["name"]: {key: item[key] for key in ("command", "timeout_seconds")} for item in result["checks"] if item["name"] not in existing}
+    if not additions:
+        print("No changes: every discovered check already has a configured entry.")
+        return 0
+    print("The following commands will be added to .narrow/config.json:")
+    for name, spec in additions.items():
+        print(f"  {name}: {shlex.join(spec['command'])}")
+    try:
+        answer = input("Add these suggestions? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in {"y", "yes"}:
+        print("Cancelled. No configuration was changed.")
+        return 1
+    existing.update(additions)
+    write_internal_file(root / ".narrow", "config.json", json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    print("Added " + str(len(additions)) + " suggested check(s). Review each command before running narrow verify or narrow drive.")
+    return 0
+
+
+def cmd_propose(args: argparse.Namespace) -> int:
+    """Draft a task contract. This command never starts an agent or writes files."""
+    root = find_repo_root()
+    model = args.model if args.ollama else None
+    proposal = propose_contract(root, args.goal, ollama_model=model)
+    if args.json:
+        print(json.dumps(proposal, ensure_ascii=False, indent=2))
+        return 0
+    print("NARROW task proposal — review before using")
+    print("Title: " + proposal["title"])
+    print("Goal: " + proposal["goal"])
+    print("Allowed paths:")
+    for item in proposal["allow"]:
+        print("  " + item)
+    print("Denied paths:")
+    for item in proposal["deny"]:
+        print("  " + item)
+    print("Acceptance criteria:")
+    for index, item in enumerate(proposal["accept"], 1):
+        print(f"  {index}. {item}")
+    print("Suggested checks:")
+    for item in proposal["checks"]:
+        print(f"  {item['name']}: {shlex.join(item['command'])}")
+    print("Generation: " + proposal["generation"])
+    print(proposal["warning"])
+    print("NARROW has not created the task. Review the paths and criteria, then pass them explicitly to narrow start.")
+    return 0
+
+
 def cmd_providers(args: argparse.Namespace) -> int:
     items = provider_status(probe_versions=args.versions)
     if args.json:
         print(json.dumps({"schema": "narrow.providers.v1", "providers": items}, ensure_ascii=False, indent=2))
         return 0
-    print("NARROW native provider adapters (no credentials are read):")
+    print("NARROW provider adapters (built-in and installed plugins; no credentials are read):")
     for item in items:
         state = "AVAILABLE" if item["available"] else "NOT FOUND"
         path = f" — {item['path']}" if item["path"] else ""
@@ -320,6 +511,9 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     store = _store_obj or _store()
     task = _task or store.get_task(args.task)
     config = load_config(store.root)
+    sandbox_config = config.get("verification_sandbox", {"mode": "off"})
+    if not isinstance(sandbox_config, dict):
+        raise NarrowError("verification_sandbox must be a JSON object in .narrow/config.json.")
     checks = config.get("checks", {})
     if args.check not in checks:
         available = ", ".join(checks) or "(none configured)"
@@ -330,13 +524,23 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     command = spec.get("command")
     if not isinstance(command, list) or not command or not all(isinstance(part, str) and part and "\x00" not in part for part in command):
         raise NarrowError(f"Check '{args.check}' must define a non-empty argv array. Shell strings are not supported.")
-    if not _confirm(command, args.yes):
-        print("Cancelled. No verification command was run.")
-        return 1
     workspace = task_workspace(task)
+    # Validate the configured container engine and local image before asking
+    # the user to approve this check.
+    prepare_sandbox_command(
+        command, workspace, sandbox_config,
+        cache_root=cache_root() / "container-caches", cache_scope=task["id"],
+    )
     unsafe_before = unsafe_workspace_links(workspace)
     if unsafe_before:
         raise NarrowError("NARROW refuses to run verification while unsafe symlinks or hard-linked files exist: " + ", ".join(unsafe_before[:20]))
+    if sandbox_config.get("mode", "off") == "off":
+        print("Verification will run with your user permissions inside the isolated task worktree.")
+    else:
+        print("Verification will run in the configured " + str(sandbox_config.get("mode")) + " container profile.")
+    if not _confirm(command, args.yes):
+        print("Cancelled. No verification command was run.")
+        return 1
     before = snapshot_hash(workspace)
     try:
         raw_timeout = spec.get("timeout_seconds", 300)
@@ -349,7 +553,10 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     verify_env = os.environ.copy()
     verify_env["PYTHONDONTWRITEBYTECODE"] = "1"
     exit_code, output = run_verification_command(
-        command, cwd=workspace, env=verify_env, timeout=timeout, _lock_fd=_lock_fd
+        command, cwd=workspace, env=verify_env, timeout=timeout, _lock_fd=_lock_fd,
+        sandbox=sandbox_config,
+        sandbox_cache_root=cache_root() / "container-caches",
+        sandbox_cache_scope=task["id"],
     )
     duration = int((time.monotonic() - started) * 1000)
     after = snapshot_hash(workspace)
@@ -548,9 +755,29 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="Initialize local NARROW metadata and configuration.").set_defaults(func=cmd_init)
 
+    discover = sub.add_parser("discover", help="Read project manifests and suggest verification commands.")
+    discover.add_argument("--apply", action="store_true", help="Review and add discovered checks to .narrow/config.json.")
+    discover.add_argument("--json", action="store_true", help="Emit the discovery report as JSON.")
+    discover.set_defaults(func=cmd_discover)
+
+    propose = sub.add_parser("propose", help="Draft a task contract from a plain-language goal.")
+    propose.add_argument("goal")
+    propose.add_argument("--ollama", action="store_true", help="Use an explicitly selected local Ollama model; bounded source context is sent only to localhost.")
+    propose.add_argument("--model", default="llama3:8b", help="Local Ollama model name (default: llama3:8b).")
+    propose.add_argument("--json", action="store_true", help="Emit the task proposal as JSON.")
+    propose.set_defaults(func=cmd_propose)
+
+    contract_history = sub.add_parser("contract-history", help="Show generated and approved contract versions for a task.")
+    contract_history.add_argument("--task")
+    contract_history.add_argument("--json", action="store_true", help="Emit version history as JSON.")
+    contract_history.set_defaults(func=cmd_contract_history)
+
     start = sub.add_parser("start", help="Create a task in an isolated repository copy.")
-    start.add_argument("--title", required=True)
+    start.add_argument("--title", help="Task title. Optional with --auto-contract.")
     start.add_argument("--goal", required=True)
+    start.add_argument("--auto-contract", action="store_true", help="Draft paths and acceptance criteria from the goal, then ask before creating the task.")
+    start.add_argument("--ollama", action="store_true", help="Use a model already running on local Ollama for the contract proposal.")
+    start.add_argument("--model", default="llama3:8b", help="Local Ollama model name (default: llama3:8b).")
     start.add_argument("--allow", action="append", default=[], help="Allowed path glob; repeat for multiple patterns.")
     start.add_argument("--deny", action="append", default=[], help="Denied path glob; repeat for multiple patterns.")
     start.add_argument("--accept", action="append", default=[], help="Acceptance criterion; repeat for multiple criteria.")
@@ -572,7 +799,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     adapter_group = drive.add_mutually_exclusive_group(required=True)
     adapter_group.add_argument("--agent", help="Name of an agent entry in .narrow/config.json.")
-    adapter_group.add_argument("--provider", choices=("claude", "codex"), help="Use a supported native Claude Code or Codex CLI adapter.")
+    adapter_group.add_argument("--provider", help="Use a built-in or installed narrow.adapters provider plugin.")
     drive.add_argument("--model", help="Optional provider model name; provider defaults are used when omitted.")
     drive.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"), help="Optional reasoning effort. `max` is Claude-only; supported levels depend on the selected model and account.")
     drive.add_argument("--max-turns", type=int, default=40, help="Claude Code turn budget (1–200; Codex ignores this setting).")
