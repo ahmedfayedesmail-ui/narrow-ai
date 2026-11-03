@@ -70,7 +70,7 @@ proxy does not decrypt provider TLS; provider TLS
 verification remains the responsibility of the client. A provider hostname
 allowlist does not prevent the agent from sending task data to that provider.
 
-The proxy also binds the TLS ClientHello SNI to the exact CONNECT hostname; clients without a visible DNS SNI (including ECH-only handshakes) fail closed.
+The proxy also binds the TLS ClientHello SNI to the exact CONNECT hostname. It explicitly rejects the TLS Encrypted ClientHello (ECH) extension: matching only an outer SNI would not prove the encrypted inner hostname. Clients without a visible DNS SNI fail closed.
 
 **This is a proxy primitive, not end-to-end egress enforcement.** Until the
 agent launcher creates a per-execution network with no direct internet route,
