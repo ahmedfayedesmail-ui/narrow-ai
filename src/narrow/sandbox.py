@@ -132,7 +132,7 @@ def prepare_sandbox_command(
                 raise NarrowError(f"Could not validate dependency cache '{name}': {exc}") from exc
             container_path, env_name = cache_locations[name]
             host_text = str(resolved_cache).replace("\\", "/") if os.name == "nt" else str(resolved_cache)
-            argv.extend(["--mount", f"type=bind,src={host_text},dst={container_path},rw"])
+            argv.extend(["--mount", f"type=bind,src={host_text},dst={container_path}"])
             argv.extend(["--env", f"{env_name}={container_path}"])
 
     argv.extend(["--entrypoint", command[0], image, *command[1:]])
