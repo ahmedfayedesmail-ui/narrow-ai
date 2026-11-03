@@ -26,6 +26,13 @@ classifiers = [
 ]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/ahmedfayedesmail-ui/narrow-ai"
+Documentation = "https://github.com/ahmedfayedesmail-ui/narrow-ai#readme"
+Repository = "https://github.com/ahmedfayedesmail-ui/narrow-ai"
+Issues = "https://github.com/ahmedfayedesmail-ui/narrow-ai/issues"
+Changelog = "https://github.com/ahmedfayedesmail-ui/narrow-ai/blob/main/CHANGELOG.md"
+
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 
