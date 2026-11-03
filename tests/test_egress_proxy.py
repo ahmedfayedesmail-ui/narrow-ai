@@ -141,6 +141,13 @@ class EgressProxyPolicyTests(unittest.TestCase):
         message = record[5:5 + record_length]
         self.assertEqual(_extract_client_hello_sni(message), "api.anthropic.com")
 
+    def test_tls_client_hello_rejects_trailing_handshake_bytes(self):
+        record = self.make_client_hello("api.anthropic.com")
+        record_length = int.from_bytes(record[3:5], "big")
+        message = record[5:5 + record_length] + b"\\x01\\x00\\x00\\x00"
+        with self.assertRaisesRegex(ProxyPolicyError, "length is inconsistent"):
+            _extract_client_hello_sni(message)
+
     def test_tls_client_hello_sni_must_match_connect_authority(self):
         left, right = socket.socketpair()
         try:
