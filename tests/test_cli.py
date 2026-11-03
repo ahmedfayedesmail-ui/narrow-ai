@@ -16,6 +16,12 @@ class CliTests(unittest.TestCase):
         self.assertEqual(drive.agent, "claude")
         self.assertEqual(drive.max_attempts, 2)
         self.assertFalse(drive.allow_subagents)
+        self.assertFalse(drive.container_agent)
+        codex_container = parser.parse_args([
+            "drive", "--provider", "codex", "--container-agent", "--task", "task_123"
+        ])
+        self.assertTrue(codex_container.container_agent)
+        self.assertEqual(codex_container.provider, "codex")
         dashboard = parser.parse_args(["dashboard", "--port", "8766"])
         self.assertEqual(dashboard.port, 8766)
         self.assertFalse(dashboard.open)
