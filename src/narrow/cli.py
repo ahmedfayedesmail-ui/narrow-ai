@@ -34,6 +34,7 @@ from .core import (
     unsafe_workspace_links,
     task_workspace,
     write_internal_file,
+    cache_root,
 )
 from .supervisor import run_agent, run_verification_command
 from .drive import drive_task
@@ -457,7 +458,10 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     workspace = task_workspace(task)
     # Validate the configured container engine and local image before asking
     # the user to approve this check.
-    prepare_sandbox_command(command, workspace, sandbox_config)
+    prepare_sandbox_command(
+        command, workspace, sandbox_config,
+        cache_root=cache_root() / "container-caches", cache_scope=task["id"],
+    )
     unsafe_before = unsafe_workspace_links(workspace)
     if unsafe_before:
         raise NarrowError("NARROW refuses to run verification while unsafe symlinks or hard-linked files exist: " + ", ".join(unsafe_before[:20]))
@@ -482,6 +486,8 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     exit_code, output = run_verification_command(
         command, cwd=workspace, env=verify_env, timeout=timeout, _lock_fd=_lock_fd,
         sandbox=sandbox_config,
+        sandbox_cache_root=cache_root() / "container-caches",
+        sandbox_cache_scope=task["id"],
     )
     duration = int((time.monotonic() - started) * 1000)
     after = snapshot_hash(workspace)
