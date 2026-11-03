@@ -16,12 +16,12 @@ class SandboxPlan:
     engine: str
     container_name: str
 
-def _validated_options(config: dict[str, Any]) -> tuple[str, str, str, str, int, bool]:
+def _validated_options(config: dict[str, Any]) -> tuple[str, str, str, str, int, bool, list[str]]:
     mode = config.get("mode", "off")
     if not isinstance(mode, str) or mode not in {"off", "auto", "docker", "podman"}:
         raise NarrowError("verification_sandbox.mode must be off, auto, docker, or podman.")
     if mode == "off":
-        return mode, "", "", "2", 256, False
+        return mode, "", "", "2", 256, False, []
     image = config.get("image")
     if not isinstance(image, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/:@+-]{0,250}", image):
         raise NarrowError("verification_sandbox.image must name a pre-built local image.")
@@ -41,11 +41,20 @@ def _validated_options(config: dict[str, Any]) -> tuple[str, str, str, str, int,
     read_only = config.get("workspace_read_only", True)
     if not isinstance(read_only, bool):
         raise NarrowError("verification_sandbox.workspace_read_only must be true or false.")
-    return mode, image, memory, cpus, pids, read_only
+    caches = config.get("dependency_caches", [])
+    supported_caches = {"pip", "npm", "pnpm", "yarn"}
+    if not isinstance(caches, list) or len(caches) > 4 or any(
+        not isinstance(item, str) or item not in supported_caches for item in caches
+    ) or len(set(caches)) != len(caches):
+        raise NarrowError("verification_sandbox.dependency_caches must be a unique list of pip, npm, pnpm, and/or yarn.")
+    return mode, image, memory, cpus, pids, read_only, caches
 
-def prepare_sandbox_command(command: list[str], cwd: Path, config: dict[str, Any]) -> SandboxPlan | None:
+def prepare_sandbox_command(
+    command: list[str], cwd: Path, config: dict[str, Any], *,
+    cache_root: Path | None = None, cache_scope: str | None = None,
+) -> SandboxPlan | None:
     """Build a fail-closed local container command; never pulls an image."""
-    mode, image, memory, cpus, pids, read_only = _validated_options(config)
+    mode, image, memory, cpus, pids, read_only, dependency_caches = _validated_options(config)
     if mode == "off":
         return None
     if not isinstance(command, list) or not command or not all(isinstance(item, str) and item and "\x00" not in item for item in command):
@@ -87,6 +96,45 @@ def prepare_sandbox_command(command: list[str], cwd: Path, config: dict[str, Any
     ]
     if os.name != "nt" and hasattr(os, "getuid") and hasattr(os, "getgid"):
         argv.extend(["--user", f"{os.getuid()}:{os.getgid()}"])
+
+    if dependency_caches:
+        if cache_root is None or not isinstance(cache_scope, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", cache_scope):
+            raise NarrowError("Configured dependency caches require a private NARROW cache root and valid task scope.")
+        base = Path(cache_root).expanduser()
+        if base.is_symlink():
+            raise NarrowError("NARROW container cache root must not be a symbolic link.")
+        try:
+            base.mkdir(parents=True, mode=0o700, exist_ok=True)
+            if base.is_symlink() or not base.is_dir():
+                raise NarrowError("NARROW container cache root is not a regular directory.")
+            scoped = base / cache_scope
+            scoped.mkdir(mode=0o700, exist_ok=True)
+            if scoped.is_symlink() or not scoped.is_dir():
+                raise NarrowError("NARROW task dependency cache directory is redirected.")
+        except OSError as exc:
+            raise NarrowError(f"Could not prepare the private dependency cache: {exc}") from exc
+        cache_locations = {
+            "pip": ("/narrow-cache/pip", "PIP_CACHE_DIR"),
+            "npm": ("/narrow-cache/npm", "npm_config_cache"),
+            "pnpm": ("/narrow-cache/pnpm", "npm_config_store_dir"),
+            "yarn": ("/narrow-cache/yarn", "YARN_CACHE_FOLDER"),
+        }
+        for name in dependency_caches:
+            host_cache = scoped / name
+            host_cache.mkdir(mode=0o700, exist_ok=True)
+            if host_cache.is_symlink() or not host_cache.is_dir():
+                raise NarrowError(f"Dependency cache '{name}' is redirected or is not a directory.")
+            try:
+                resolved_cache = host_cache.resolve(strict=True)
+                if not resolved_cache.is_relative_to(scoped.resolve(strict=True)):
+                    raise NarrowError(f"Dependency cache '{name}' escapes its task-specific cache root.")
+            except OSError as exc:
+                raise NarrowError(f"Could not validate dependency cache '{name}': {exc}") from exc
+            container_path, env_name = cache_locations[name]
+            host_text = str(resolved_cache).replace("\\", "/") if os.name == "nt" else str(resolved_cache)
+            argv.extend(["--mount", f"type=bind,src={host_text},dst={container_path},rw"])
+            argv.extend(["--env", f"{env_name}={container_path}"])
+
     argv.extend(["--entrypoint", command[0], image, *command[1:]])
     return SandboxPlan(argv, engine_path, container_name)
 
