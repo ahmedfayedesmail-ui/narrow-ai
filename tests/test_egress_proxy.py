@@ -15,6 +15,7 @@ from narrow.egress_proxy import (
     _read_tls_client_hello,
     ProxyPolicyError,
     check_proxy_token,
+    check_proxy_authorization,
     normalize_allowlist,
     normalize_hostname,
     parse_connect_authority,
@@ -186,6 +187,16 @@ class EgressProxyPolicyTests(unittest.TestCase):
         self.assertTrue(check_proxy_token("a" * 48, "a" * 48))
         self.assertFalse(check_proxy_token("a" * 47, "a" * 48))
         self.assertFalse(check_proxy_token(None, "a" * 48))
+
+    def test_proxy_accepts_bearer_and_standard_basic_capability_auth(self):
+        token = "a" * 48
+        self.assertTrue(check_proxy_authorization(f"Bearer {token}", token))
+        import base64
+        basic = base64.b64encode(f"narrow:{token}".encode("utf-8")).decode("ascii")
+        self.assertTrue(check_proxy_authorization(f"Basic {basic}", token))
+        wrong_user = base64.b64encode(f"root:{token}".encode("utf-8")).decode("ascii")
+        self.assertFalse(check_proxy_authorization(f"Basic {wrong_user}", token))
+        self.assertFalse(check_proxy_authorization("Basic !!!", token))
 
     def test_token_file_requires_owner_only_permissions(self):
         with tempfile.TemporaryDirectory() as temp:

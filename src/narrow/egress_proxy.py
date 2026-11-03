@@ -7,6 +7,7 @@ proxy and must isolate each execution on its own network.
 from __future__ import annotations
 
 import argparse
+import base64
 import hmac
 import ipaddress
 import math
@@ -153,6 +154,25 @@ def check_proxy_token(supplied: str | None, expected: str) -> bool:
     if not supplied or len(supplied) > 512:
         return False
     return hmac.compare_digest(supplied.encode("utf-8"), expected.encode("utf-8"))
+
+
+def check_proxy_authorization(value: str | None, expected: str) -> bool:
+    """Accept Bearer or conventional Basic (username narrow, password token)."""
+    if not value or len(value) > 1024:
+        return False
+    scheme, separator, credentials = value.partition(" ")
+    if not separator:
+        return False
+    if scheme.lower() == "bearer":
+        return check_proxy_token(credentials.strip(), expected)
+    if scheme.lower() != "basic":
+        return False
+    try:
+        decoded = base64.b64decode(credentials.strip(), validate=True).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return False
+    username, colon, password = decoded.partition(":")
+    return colon == ":" and username == "narrow" and check_proxy_token(password, expected)
 
 
 def read_token_file(path: Path) -> str:
@@ -350,9 +370,11 @@ class _BoundedThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPSe
 class _ConnectHandler(socketserver.StreamRequestHandler):
     server: _BoundedThreadingTCPServer
 
-    def _reply(self, status: int, reason: str) -> None:
+    def _reply(self, status: int, reason: str, extra_headers: tuple[str, ...] = ()) -> None:
+        headers = "".join(f"{header}\r\n" for header in extra_headers)
         message = (
             f"HTTP/1.1 {status} {reason}\r\n"
+            f"{headers}"
             "Connection: close\r\n"
             "Content-Length: 0\r\n\r\n"
         ).encode("ascii")
@@ -437,9 +459,12 @@ class _ConnectHandler(socketserver.StreamRequestHandler):
         authority, headers = request
 
         authorization = headers.get("proxy-authorization", "")
-        scheme, separator, supplied_token = authorization.partition(" ")
-        if scheme.lower() != "bearer" or not separator or not check_proxy_token(supplied_token, config.token):
-            self._reply(407, "Proxy Authentication Required")
+        if not check_proxy_authorization(authorization, config.token):
+            self._reply(
+                407,
+                "Proxy Authentication Required",
+                ('Proxy-Authenticate: Basic realm="NARROW"', "Proxy-Authenticate: Bearer"),
+            )
             return
         if "host" not in headers:
             self._reply(400, "Bad Request")

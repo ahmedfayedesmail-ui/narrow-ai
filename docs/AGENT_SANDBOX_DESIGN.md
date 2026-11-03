@@ -63,8 +63,10 @@ python -m narrow.egress_proxy \
 ```
 
 The token file must be owner-only (mode 0600 on POSIX) and contain at least
-32 random ASCII characters. The agent receives only the proxy capability, not
-a provider API key. The proxy does not decrypt provider TLS; provider TLS
+32 random ASCII characters. Clients may use HTTP proxy Basic authentication
+(username `narrow`, password equal to the token) or a Bearer proxy header.
+The agent receives only this proxy capability, not a provider API key. The
+proxy does not decrypt provider TLS; provider TLS
 verification remains the responsibility of the client. A provider hostname
 allowlist does not prevent the agent from sending task data to that provider.
 
