@@ -8,7 +8,16 @@ NARROW is a local-first task continuity and completion supervisor for AI coding 
 
 It works with the coding agents you already have. NARROW itself does not require an API key or upload source code to a NARROW service. Provider authentication and usage remain with the provider's own CLI and account.
 
-> **Alpha software.** NARROW is a supervisor and evidence recorder, not a guarantee that an agent is safe or that a change is correct. Read [SECURITY.md](SECURITY.md) and [the threat model](docs/THREAT_MODEL.md) before using it on valuable repositories.
+> **Beta preview — v0.6.0b1 (unreleased source snapshot).** NARROW is a task supervisor and evidence recorder, not a guarantee that an agent is safe or a change is correct. It is not a universal OS sandbox or a stable release. The published v0.5.1 PyPI package remains Alpha and is unchanged. Read [SECURITY.md](SECURITY.md) and [the threat model](docs/THREAT_MODEL.md) before using it on valuable repositories.
+
+## Beta preview highlights
+
+- Project discovery and test-command proposals are bounded and read-only; discovered checks are not executed automatically.
+- Plain-language task proposals require human review before task creation or configuration changes.
+- Optional Docker/Podman verification is network-disabled by default and resource-limited.
+- An opt-in POSIX/local-Docker Codex container runtime uses a separate proxy sidecar, execution-scoped networks, digest-pinned images, mounted short-lived credentials, and supervised cleanup.
+
+The Codex container profile remains experimental and opt-in. Its Docker egress acceptance job is pending on the merged main snapshot. A live authenticated Codex account run is not required for the Beta label by the project owner's decision, and no live run is claimed.
 
 ## What's new in v0.5.0
 
@@ -26,9 +35,9 @@ This is coordination, not a universal machine sandbox. Windows supervised proces
 - **Richer Claude telemetry:** optional Task/Agent tools, task-created/completed and subagent lifecycle hooks, and tool-failure metadata. Subagents require explicit `--allow-subagents` opt-in.
 - **Compatibility diagnostics:** opt-in provider version probing reports when Claude Code should be upgraded for full task/subagent telemetry.
 
-## Experimental development features on the feature branch
+## Beta preview capabilities on main
 
-The current development branch adds four opt-in capabilities that are not part of the published v0.5.1 package:
+The current Beta preview on `main` includes four opt-in capabilities added after the published v0.5.1 Alpha package:
 
 - Project discovery: narrow discover inspects common project manifests and suggests test commands. It never runs discovered commands. Use narrow discover --apply to review and add new suggestions to .narrow/config.json.
 - Task proposals: narrow propose "Fix the login timeout" drafts a contract without creating a task. Add --ollama to use a model already installed in local Ollama. The model request goes only to 127.0.0.1 and may include a small, bounded selection of source files; it is optional. Every proposed path and criterion requires human review.
@@ -56,13 +65,13 @@ export OPENAI_API_KEY=...
 narrow drive --provider codex --container-agent
 ```
 
-Use the exact provider endpoints needed by your account in `egress_allow_hosts`; the default example is intentionally narrow and may not cover every account or feature. The mounted key is readable by the agent process. The Docker daemon and host kernel remain trusted, and the agent can still attempt to reach host services exposed on its local bridge. This is not a microVM or a complete boundary against a malicious host-level process. The feature is experimental, POSIX-only, and must pass real Docker and authenticated Codex acceptance tests before it can be considered Beta.
+Use the exact provider endpoints needed by your account in `egress_allow_hosts`; the default example is intentionally narrow and may not cover every account or feature. The mounted key is readable by the agent process. The Docker daemon and host kernel remain trusted, and the agent can still attempt to reach host services exposed on its local bridge. This is not a microVM or a complete boundary against a malicious host-level process. The feature remains opt-in and experimental within this Beta preview. The Docker proxy-only egress acceptance job is part of the merged-main CI workflow and is still pending a passing result. A live authenticated Codex account session is not required for the Beta label by the project owner's decision; no such session is claimed.
 
 Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md, docs/SANDBOXING.md, and docs/AGENT_SANDBOX_DESIGN.md for installation, configuration, and the remaining agent-container acceptance gates.
 
-The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created suspended inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; NARROW verifies Job membership before resuming the initial thread. There is no post-creation assignment window or suspended child outside the Job. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release. The experimental agent-container mode is not part of that published package.
+The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created suspended inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; NARROW verifies Job membership before resuming the initial thread. There is no post-creation assignment window or suspended child outside the Job. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. The Beta preview is available from the `main` source branch. The published v0.5.1 PyPI package remains Alpha and does not include these changes.
 
-## Try the experimental workflow (feature branch only)
+## Try the Beta preview workflow (main source branch)
 
 From an initialized project, `narrow discover` reads common project manifests and prints likely test commands without running them. Review and add missing suggestions with `narrow discover --apply`.
 
@@ -103,14 +112,14 @@ python -m pip install .
 narrow --version
 ```
 
-The current source release is tagged `v0.5.1`. This is a packaging and documentation refresh of the v0.5.0 Alpha; it does not change runtime behavior. See [the v0.5.1 release notes](docs/RELEASE-NOTES-v0.5.1.md) and [the Python publishing guide](docs/PUBLISHING.md).
+The current GitHub `main` branch is the unreleased `0.6.0b1` Beta preview. The published `v0.5.1` PyPI package remains Alpha and is unchanged. See [the Beta preview release notes](docs/RELEASE-NOTES-v0.6.0b1.md), [the v0.5.1 release notes](docs/RELEASE-NOTES-v0.5.1.md), and [the Python publishing guide](docs/PUBLISHING.md).
 
 For a reproducible source install:
 
 ```bash
 git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
 cd narrow-ai
-git checkout v0.5.1
+git checkout main
 python -m pip install .
 narrow --version
 ```
@@ -272,12 +281,12 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 
 ## Current validation
 
-- The published `v0.5.1` package remains Alpha; its runtime is unchanged from the prior validated source release.
-- The `feat/container-agent-policy-manifest` branch contains the opt-in POSIX/local-Docker Codex agent runtime, proxy sidecar, policy/credential mounts, and ordered cleanup. These changes are not included in the published package.
-- The GitHub Actions workflow now runs feature branches on pull-request events only and cancels superseded runs. The current PR #16 matrix is running; the PR #17 runtime workflow includes a real Docker egress acceptance job, but it has not yet produced a passing result on the exact PR #17 head.
-- A successful Docker topology test is not an authenticated Codex session. An actual provider session, Windows/container fault injection, adversarial boundary testing, and independent security review remain Beta gates.
-- The demo uses a deterministic fake agent; it is not a provider, Docker, or security test.
-- Android/Termux remains unsupported and unvalidated.
+- PR #16 and PR #17 have been merged into `main`; the source now includes discovery, reviewed task proposals, optional containerized checks, and the opt-in Codex container/proxy runtime.
+- On PR #16 head `d0cb99a`, workflow run [#41716857214](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41716857214) completed successfully for Ubuntu/Python 3.11–3.14, Windows repaired/blocked demos, and wheel/sdist build plus clean wheel installation. The macOS job was still queued at the recorded check.
+- The merged PR #17 main-push validation is tracked by [run #41717982650](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41717982650); it was queued when this Beta snapshot was recorded. That workflow includes the real Docker proxy-only egress acceptance job, so its result is not yet claimed as passing.
+- No authenticated live Codex account session was performed. The project owner has explicitly decided that such a session is not required for the Beta label; this document does not claim that live provider execution was tested.
+- The deterministic local demo uses a fake agent. It is not a live provider session, Docker egress proof, or independent security audit.
+- The published `v0.5.1` PyPI package remains Alpha and unchanged. Android/Termux remains unsupported and unvalidated.
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). Safety regressions, privacy leakage, and unbounded execution are release blockers.
