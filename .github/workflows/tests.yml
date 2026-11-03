@@ -63,7 +63,7 @@ jobs:
           python -m narrow verify --help
           python -m narrow finish --help
       - name: Upload tested source archive
-        if: matrix.python-version == "3.13"
+        if: ${{ matrix.python-version == '3.13' }}
         uses: actions/upload-artifact@v4
         with:
           name: narrow-v0.5.0-alpha-source-${{ github.sha }}
