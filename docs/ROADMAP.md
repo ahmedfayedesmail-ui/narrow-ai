@@ -55,7 +55,8 @@ The following capabilities are being developed separately from the published v0.
 
 - Project-manifest discovery proposes supported test commands without executing them; config changes require explicit review.
 - Plain-language task proposal can suggest a title, allowed/denied paths, and acceptance criteria. Local Ollama use is optional and loopback-only; a human must approve the contract before task creation.
-- Optional Docker/Podman isolation is wired for verification commands only. It disables networking, uses a read-only container root and task-workspace mount by default, drops Linux capabilities, sets no-new-privileges, and applies CPU/memory/PID limits. A prebuilt local image is required and never pulled automatically.
+- Optional Docker/Podman isolation for verification commands remains available. It disables networking, uses a read-only container root and task-workspace mount by default, drops Linux capabilities, sets no-new-privileges, and applies CPU/memory/PID limits.
+- An experimental POSIX/local-Docker Codex agent profile is now wired on the feature branch behind `narrow drive --provider codex --container-agent`. It uses an internal agent bridge, a separately routed and inspected egress-proxy sidecar, a mounted per-execution capability, no agent default route, and ordered host-supervised cleanup. The profile is not in the published v0.5.1 package and is not Beta.
 - Third-party provider adapter loading is available through the narrow.adapters Python entry-point group. This is a plugin interface, not bundled LangChain, CrewAI, or AutoGen integrations.
 
 - Windows first-level child-process Job Object assignment with kill-on-close. Initial process-creation-to-assignment race, breakaway cases, Docker daemon containers, and adversarial Windows crash tests remain open.
@@ -64,7 +65,7 @@ The following capabilities are being developed separately from the published v0.
 - Field-version history and diffs for generated versus human-approved contracts; active contracts stay immutable.
 - Optional per-task pip/npm/pnpm/yarn cache mounts; no host home-directory cache or credential directories are mounted.
 
-This does not yet provide an OS container around the AI agent process, a microVM, an interactive write dashboard, or a complete validated Windows process-lifetime guarantee. The default sandbox mode is off for compatibility. These are still release gates, not completed enterprise-security claims.
+The feature branch now has an opt-in OS container around the Codex CLI, but that does not amount to a microVM or a universal agent sandbox. The live Docker egress acceptance job, authenticated Codex session, Windows support, broader adversarial tests, and independent review remain release gates. The default execution mode remains unchanged for compatibility. These are still release gates, not completed enterprise-security claims.
 
 ## v0.6 — Stronger execution isolation (planned)
 
