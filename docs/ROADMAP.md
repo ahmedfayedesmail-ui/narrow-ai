@@ -46,6 +46,17 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 
 **Remaining exit gate:** validate Windows inherited-handle crash behavior, authenticated Claude/Codex sessions, detached process behavior, macOS, and a real sandbox boundary. The execution lease is coordination, not an OS sandbox.
 
+## Experimental v0.5.2 feature branch — not released
+
+The following capabilities are being developed separately from the published v0.5.1 Alpha package:
+
+- Project-manifest discovery proposes supported test commands without executing them; config changes require explicit review.
+- Plain-language task proposal can suggest a title, allowed/denied paths, and acceptance criteria. Local Ollama use is optional and loopback-only; a human must approve the contract before task creation.
+- Optional Docker/Podman isolation is wired for verification commands only. It disables networking, uses a read-only container root and task-workspace mount by default, drops Linux capabilities, sets no-new-privileges, and applies CPU/memory/PID limits. A prebuilt local image is required and never pulled automatically.
+- Third-party provider adapter loading is available through the narrow.adapters Python entry-point group. This is a plugin interface, not bundled LangChain, CrewAI, or AutoGen integrations.
+
+This does not yet provide an OS container around the AI agent process, a microVM, an interactive dashboard, or a validated Windows Job Object / inherited-lock lifetime guarantee. The default sandbox mode is off for compatibility. These are still release gates, not completed enterprise-security claims.
+
 ## v0.6 — Stronger execution isolation (planned)
 
 - Optional disposable Docker/Podman sandbox with a read-only source mount and writable task workspace only.
