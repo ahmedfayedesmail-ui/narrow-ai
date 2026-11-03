@@ -101,6 +101,8 @@ class AgentRuntimePlanTests(unittest.TestCase):
                     task_id=task_id,
                     execution_id=execution_id,
                     proxy_token="d" * 48,
+                    uid=1234,
+                    gid=1235,
                 )
         self.assertEqual(command[:2], ["docker", "run"])
         self.assertIn("--read-only", command)
@@ -113,6 +115,7 @@ class AgentRuntimePlanTests(unittest.TestCase):
         self.assertIn("HTTP_PROXY=http://narrow:" + "d" * 48 + "@narrow-egress-proxy:3128", command)
         self.assertEqual(command[-1], "-")
         self.assertEqual(command[command.index("--workdir") + 1], "/workspace")
+        self.assertEqual(command[command.index("--user") + 1], "1234:1235")
 
     @unittest.skipIf(os.name == "nt", "Container credential leases are POSIX-only")
     def test_rejects_invalid_egress_capability(self):
