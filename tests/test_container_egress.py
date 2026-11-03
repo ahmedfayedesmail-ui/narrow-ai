@@ -253,7 +253,19 @@ class ContainerEgressTests(unittest.TestCase):
                 "narrow.agent_runtime.build_docker_agent_command", return_value=["docker", "run", "restricted"]
             ) as build, patch(
                 "narrow.container_supervisor.run_container_agent", return_value=(0, "container-ok")
-            ) as run:
+            ) as run, patch(
+                "narrow.container_egress.list_execution_agent_containers", return_value=[]
+            ), patch(
+                "narrow.container_egress.cleanup_execution_egress_proxy_containers", return_value=1
+            ), patch(
+                "narrow.container_egress.list_execution_egress_proxy_containers", return_value=[]
+            ), patch(
+                "narrow.container_egress.cleanup_execution_egress_uplink_networks", return_value=1
+            ), patch(
+                "narrow.container_egress.cleanup_execution_agent_networks", return_value=1
+            ), patch(
+                "narrow.container_egress.remove_execution_proxy_token_file", return_value=True
+            ):
                 code, output = run_codex_container_agent(
                     self.store,
                     TASK,
