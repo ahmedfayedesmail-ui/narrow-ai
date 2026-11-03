@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from narrow.core import NarrowError, Store, create_task, init_project
-from narrow.container_hooks import handle_container_claude_hook, import_container_hook_events
+from narrow.container_hooks import _event_value, handle_container_claude_hook, import_container_hook_events
 from narrow.hooks import run_hook_cli
 from narrow.policy_manifest import write_policy_manifest
 
@@ -172,6 +172,19 @@ class ContainerHookTests(unittest.TestCase):
         self.assertEqual(len(telemetry), 1)
         self.assertEqual(telemetry[0]["payload"]["trust"], "untrusted_agent_telemetry")
         self.assertEqual(telemetry[0]["payload"]["reported_event_type"], "CLAUDE_SESSION_START")
+
+    def test_event_payload_normalization_is_depth_and_size_bounded(self):
+        nested = {"value": "safe"}
+        for _ in range(20):
+            nested = {"child": nested}
+        normalized = _event_value(nested)
+        self.assertIn("[nested telemetry truncated]", repr(normalized))
+
+    def test_host_importer_rejects_invalid_task_id(self):
+        with self.assertRaisesRegex(NarrowError, "Invalid task ID"):
+            import_container_hook_events(
+                self.store, "../other-task", self.execution_id, self.spool
+            )
 
     def test_host_importer_rejects_spool_outside_task_execution_home(self):
         outside_spool = Path(self.temp.name) / "outside-hook-events.jsonl"

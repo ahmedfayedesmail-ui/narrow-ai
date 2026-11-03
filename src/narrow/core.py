@@ -289,9 +289,15 @@ class Store:
         payload: dict[str, Any],
     ) -> bool:
         """Persist one untrusted container-hook record exactly once per execution."""
-        if not isinstance(task_id, str) or not task_id or len(task_id) > 64:
+        if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
             raise NarrowError("Invalid task ID for container hook telemetry.")
-        if not isinstance(execution_id, str) or not execution_id or len(execution_id) > 64:
+        if not isinstance(execution_id, str):
+            raise NarrowError("Invalid execution ID for container hook telemetry.")
+        try:
+            normalized_execution = str(uuid.UUID(execution_id))
+        except (ValueError, AttributeError) as exc:
+            raise NarrowError("Invalid execution ID for container hook telemetry.") from exc
+        if normalized_execution != execution_id.lower():
             raise NarrowError("Invalid execution ID for container hook telemetry.")
         if (
             not isinstance(record_sha256, str)

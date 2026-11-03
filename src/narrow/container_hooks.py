@@ -7,7 +7,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import os
+import re
 import stat
 import sys
 from pathlib import Path
@@ -65,13 +67,20 @@ def _policy_context(workspace_override: Path | None = None) -> tuple[dict[str, A
     return manifest, resolved
 
 
-def _event_value(value: Any) -> Any:
+def _event_value(value: Any, *, _depth: int = 0) -> Any:
+    if _depth >= 12:
+        return "[nested telemetry truncated]"
     if isinstance(value, str):
         return redact(value[:2000])
     if isinstance(value, list):
-        return [_event_value(item) for item in value[:50]]
+        return [_event_value(item, _depth=_depth + 1) for item in value[:50]]
     if isinstance(value, dict):
-        return {str(key)[:80]: _event_value(item) for key, item in list(value.items())[:50]}
+        return {
+            str(key)[:80]: _event_value(item, _depth=_depth + 1)
+            for key, item in list(value.items())[:50]
+        }
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
     if value is None or isinstance(value, (bool, int, float)):
         return value
     return str(type(value).__name__)
@@ -194,7 +203,7 @@ def import_container_hook_events(
     diagnostics and continuity only; they never establish verification,
     acceptance, scope compliance, or task completion.
     """
-    if not isinstance(task_id, str) or not task_id or len(task_id) > 64:
+    if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
         raise NarrowError("Invalid task ID for container hook telemetry import.")
     try:
         from .policy_manifest import _validate_execution_id
@@ -261,7 +270,7 @@ def import_container_hook_events(
             continue
         try:
             record = json.loads(line.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
+        except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
             continue
         if not isinstance(record, dict) or set(record) != {
             "schema", "task_id", "execution_id", "event_type", "created_at", "payload",
