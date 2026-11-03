@@ -193,6 +193,7 @@ class _BoundedThreadingTCPServer(socketserver.ThreadingMixIn, socketserver.TCPSe
     block_on_close = True
 
     def __init__(self, address, handler, config: ProxyConfig):
+        self.address_family = socket.AF_INET6 if ":" in address[0] else socket.AF_INET
         self.config = config
         self._slots = threading.BoundedSemaphore(config.max_connections)
         super().__init__(address, handler)
@@ -356,8 +357,12 @@ class EgressProxy:
     def __init__(self, config: ProxyConfig):
         bind_host = validate_bind_host(config.bind_host)
         allowed = normalize_allowlist(config.allowed_hosts)
-        if not 1 <= config.port <= 65535:
-            raise ProxyPolicyError("Proxy port must be between 1 and 65535.")
+        if (
+            not isinstance(config.port, int)
+            or isinstance(config.port, bool)
+            or not 1 <= config.port <= 65535
+        ):
+            raise ProxyPolicyError("Proxy port must be an integer between 1 and 65535.")
         if (
             not isinstance(config.max_connections, int)
             or isinstance(config.max_connections, bool)
