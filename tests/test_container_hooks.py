@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from narrow.core import Store, create_task, init_project
 from narrow.container_hooks import handle_container_claude_hook
+from narrow.hooks import run_hook_cli
 from narrow.policy_manifest import write_policy_manifest
 
 
@@ -98,6 +99,16 @@ class ContainerHookTests(unittest.TestCase):
         self.assertIn("src/**", context)
         self.assertNotIn(str(self.root), context)
         self.assertEqual(self.read_events()[0]["event_type"], "CLAUDE_SESSION_START")
+
+    def test_hook_cli_routes_to_manifest_mode_without_project_root(self):
+        with patch.dict(os.environ, {"NARROW_PROJECT_ROOT": ""}):
+            with patch("narrow.container_hooks.sys.stdin", hook_input({"session_id": "cli-session"})):
+                with patch("sys.stdout", new_callable=io.StringIO) as output:
+                    result = run_hook_cli(["claude", "session-start"])
+        self.assertEqual(result, 0)
+        context = json.loads(output.getvalue())["hookSpecificOutput"]["additionalContext"]
+        self.assertIn("NARROW CONTAINER TASK POLICY", context)
+        self.assertEqual(self.read_events()[-1]["event_type"], "CLAUDE_SESSION_START")
 
     def test_pre_tool_use_allows_only_in_scope_direct_writes(self):
         result = self.invoke("pre-tool-use", {
