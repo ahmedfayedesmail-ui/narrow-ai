@@ -395,6 +395,8 @@ def provision_execution_egress_proxy(
         )
         if verified_id != created_id:
             raise NarrowError("Egress proxy sidecar identity changed during verification.")
+        inspected_networks = inspected["NetworkSettings"]["Networks"]
+        gateway_address = ipaddress.ip_address(inspected_networks[uplink_network.name]["Gateway"])
         ready = False
         deadline = time.monotonic() + 12.0
         while time.monotonic() < deadline:
