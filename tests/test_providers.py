@@ -14,13 +14,16 @@ from unittest.mock import patch
 from narrow.cli import _render_work_receipt_markdown, _work_receipt, build_parser
 from narrow.core import NarrowError, Store, classify_paths, create_task, init_project
 from narrow.hooks import _validate_direct_write, handle_claude_hook
-from narrow.providers import register_adapter, (
+from narrow.providers import (
     ClaudeCodeAdapter,
     CodexCliAdapter,
+    ProviderAdapter,
     claude_settings_path,
     latest_provider_session_id,
     make_event_callback,
     provider_status,
+    get_adapter,
+    register_adapter,
 )
 from narrow.supervisor import run_agent
 
