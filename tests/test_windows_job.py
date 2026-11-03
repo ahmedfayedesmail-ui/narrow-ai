@@ -26,14 +26,22 @@ class WindowsJobTests(unittest.TestCase):
             from narrow import windows_job
 
             real_resume = windows_job._resume_primary_thread
+            real_assign = windows_job.WindowsJob.assign_suspended
             observed: list[int] = []
+            assigned: list[int] = []
+
+            def verify_assignment(job_object, process) -> None:
+                real_assign(job_object, process)
+                assigned.append(process.pid)
 
             def verify_suspended(pid: int) -> None:
+                self.assertEqual(assigned, [pid], "The primary thread was resumed before Job assignment.")
                 self.assertFalse(marker.exists(), "Child code ran before the resume step.")
                 real_resume(pid)
                 observed.append(pid)
 
-            with patch("narrow.windows_job._resume_primary_thread", side_effect=verify_suspended):
+            with patch.object(windows_job.WindowsJob, "assign_suspended", verify_assignment), \
+                 patch("narrow.windows_job._resume_primary_thread", side_effect=verify_suspended):
                 process, job = spawn_process_with_job(
                     [sys.executable, "-c", script],
                     stdin=subprocess.DEVNULL,
