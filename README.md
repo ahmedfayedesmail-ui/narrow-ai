@@ -16,7 +16,7 @@ It works with the coding agents you already have. NARROW itself does not require
 - **Inherited lease handle:** the first-level agent/check receives the lock handle. On POSIX, the lease remains held if NARROW exits unexpectedly while that child remains alive.
 - **Public source tree:** source, tests, and documentation are checked in at the repository root; CI builds and tests an exact-commit source archive for each validated release candidate.
 
-This is coordination, not a machine sandbox. Detached descendants may outlive their parent process, and the Windows crash-lifetime path still needs dedicated validation. See [the v0.5 release notes](docs/RELEASE-NOTES-v0.5.0.md).
+This is coordination, not a universal machine sandbox. Windows supervised processes are created inside a kill-on-close Job Object on supported Windows versions, but forced-termination and deep-descendant behavior still needs dedicated Windows validation. See [the v0.5 release notes](docs/RELEASE-NOTES-v0.5.0.md).
 
 ## What's new in v0.4.0
 
@@ -38,7 +38,7 @@ For the experimental container profile, build a project-specific image that incl
 
 Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md, docs/SANDBOXING.md, and docs/AGENT_SANDBOX_DESIGN.md for installation, configuration, and the remaining agent-container acceptance gates.
 
-The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. Windows supervised children now start suspended, are assigned to a kill-on-close Job Object, have membership verified, and resume only after assignment. A forced host crash before assignment can still leave an inert suspended process, and broker-created processes or daemon-managed containers are not guaranteed to be covered; adversarial Windows tests remain required. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
+The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; there is no post-creation assignment window. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
 
 ## Try the experimental workflow (feature branch only)
 
