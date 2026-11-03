@@ -14,7 +14,7 @@ from typing import Any, Callable
 
 from .locks import inherited_lock_options, task_execution_lock
 from .sandbox import cleanup_container, prepare_sandbox_command
-from .windows_job import assign_process_to_job
+from .windows_job import spawn_process_with_job
 
 from .core import (
     NarrowError,
@@ -128,7 +128,7 @@ def run_verification_command(
     execution_command = sandbox_plan.command if sandbox_plan else command
     try:
         with inherited_lock_options(_lock_fd) as lock_options:
-            process = subprocess.Popen(
+            process, process_job = spawn_process_with_job(
                 execution_command,
                 cwd=cwd,
                 env=check_env,
@@ -144,8 +144,6 @@ def run_verification_command(
         raise NarrowError(f"Executable for verification check not found: {command[0]}") from exc
     except OSError as exc:
         raise NarrowError(f"Could not start verification check {command[0]}: {exc}") from exc
-
-    process_job = assign_process_to_job(process)
 
     captured = bytearray()
     capture_lock = threading.Lock()
@@ -370,7 +368,7 @@ def run_agent(
         })
     try:
         with inherited_lock_options(_lock_fd) as lock_options:
-            process = subprocess.Popen(
+            process, process_job = spawn_process_with_job(
                 command,
                 cwd=worktree,
                 env=env,
@@ -385,8 +383,6 @@ def run_agent(
         raise NarrowError(f"Agent executable not found: {command[0]}. Check that it is installed and on PATH.") from exc
     except OSError as exc:
         raise NarrowError(f"Could not start agent: {exc}") from exc
-
-    process_job = assign_process_to_job(process)
 
     callback_errors: list[str] = []
 
