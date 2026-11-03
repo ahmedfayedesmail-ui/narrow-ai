@@ -40,6 +40,24 @@ Third-party provider integrations can be installed through the narrow.adapters P
 
 The dashboard remains read-only. Mutation controls are intentionally not exposed on an unauthenticated local HTTP server. Windows process/job lifetime validation, microVM support, turnkey framework-specific plugins, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
 
+## Try the experimental workflow (feature branch only)
+
+From an initialized project, `narrow discover` reads common project manifests and prints likely test commands without running them. Review and add missing suggestions with `narrow discover --apply`.
+
+To draft a task contract from a plain-language goal and review it before task creation:
+
+```bash
+narrow start --goal "Fix the login timeout" --auto-contract
+```
+
+For an optional local Ollama proposal (only if Ollama and the chosen model are already installed):
+
+```bash
+narrow start --goal "Fix the login timeout" --auto-contract --ollama
+```
+
+The contract proposal does not silently approve scope. NARROW prints the proposed paths and acceptance criteria and requires an explicit confirmation. Use `narrow propose "..." --json` to inspect a proposal without creating a task.
+
 ## Core workflow
 
 1. **Define the task.** State the objective, allowed paths, denied paths, and acceptance criteria.
