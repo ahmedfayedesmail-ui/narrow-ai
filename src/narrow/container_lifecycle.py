@@ -440,7 +440,7 @@ def cleanup_execution_agent_networks(
 ) -> int:
     """Remove the exact execution's internal networks only after its agents are gone."""
     if list_execution_agent_containers(engine, task_id, execution_id) or list_execution_egress_proxy_containers(engine, task_id, execution_id):
-        raise NarrowError("Refusing to remove an agent network while task/execution agent or proxy containers still exist.")
+        raise NarrowError("Refusing to remove an agent network while task/execution agent containers still exist or an egress proxy remains.")
     networks = list_execution_agent_networks(engine, task_id, execution_id)
     removed = 0
     for network in networks:
