@@ -48,6 +48,9 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 
 ## Experimental v0.5.2 feature branch — not released
 
+- Windows first-level child launch uses CREATE_SUSPENDED, kill-on-close Job assignment, explicit membership verification, and primary-thread resume only after assignment.
+
+
 The following capabilities are being developed separately from the published v0.5.1 Alpha package:
 
 - Project-manifest discovery proposes supported test commands without executing them; config changes require explicit review.
