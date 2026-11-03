@@ -4,6 +4,7 @@ import io
 import os
 import socket
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 
@@ -263,10 +264,13 @@ class EgressProxyPolicyTests(unittest.TestCase):
             token="x" * 48,
             container_private_listener=True,
         ))
+        worker = threading.Thread(target=proxy.serve_forever, daemon=True)
+        worker.start()
         try:
             self.assertEqual(proxy.address[0], "0.0.0.0")
         finally:
             proxy.shutdown()
+            worker.join(timeout=2)
 
     def test_container_listener_flag_requires_the_exact_wildcard_bind(self):
         with self.assertRaisesRegex(ProxyPolicyError, "exact 0.0.0.0"):
