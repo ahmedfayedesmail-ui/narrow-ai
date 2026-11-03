@@ -1,3 +1,23 @@
+## 0.6.0b1 — 2026-11-03 (Beta preview; source-only, unpublished)
+
+### Added
+- Bounded project discovery for common language/build manifests; suggestions are reviewed before being written or run.
+- Human-reviewed task-contract proposals, with optional loopback-only Ollama support.
+- Opt-in Docker/Podman verification with a read-only container root, disabled networking, dropped capabilities, no-new-privileges, and resource limits.
+- Opt-in POSIX/local-Docker Codex agent runtime with digest-pinned images, execution-scoped agent/proxy networks, a restricted egress proxy, short-lived credential mounts, and supervised teardown/recovery.
+- Third-party provider-adapter extension point and expanded safety/setup documentation.
+
+### Validation snapshot
+- PR #16 was merged after its Ubuntu/Python 3.11–3.14, Windows repaired/blocked, and package jobs passed. Its macOS job was still queued at the time of the recorded run.
+- PR #17 was merged with the Docker egress acceptance job included in main CI. Main-push run [#41717982650](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41717982650) was queued when this entry was written; no Docker acceptance pass is claimed yet.
+- No authenticated live Codex account session was performed. The owner has explicitly chosen not to make that session a prerequisite for the Beta label; no live session result is implied.
+
+### Scope and release notes
+- This is a public Beta preview of the GitHub source on `main`, versioned `0.6.0b1`; it has not been uploaded to PyPI and no release tag is created by this change.
+- The already-published v0.5.1 package remains Alpha and unchanged.
+- The Codex container profile is opt-in, POSIX/local-Docker only, and experimental. Docker daemon and host kernel remain trusted; the mounted API key is readable inside the agent container. This is not a microVM or universal sandbox.
+- Windows container supervision, Windows credential DACL handling, cross-platform fault injection, adversarial sandbox testing, and independent security review remain open.
+
 ## 0.5.1 — 2026-11-03 (Alpha)
 
 ### Changed
