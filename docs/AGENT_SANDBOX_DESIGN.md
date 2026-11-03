@@ -311,6 +311,13 @@ networks, validates ownership labels and security settings, and probes local
 listener readiness. Only after these checks does the agent command builder
 target the internal network and use the proxy alias and capability URL.
 
+Each Codex container attempt receives a fresh task/execution-scoped `HOME`
+and therefore a fresh `CODEX_HOME` by default. The repair loop passes its
+recorded NARROW handoff to the next attempt instead of sharing writable
+Codex session state across container lifetimes. This profile does not enable
+cross-attempt Codex `resume`; provider conversation continuity is deliberately
+traded for a smaller persistent-state surface.
+
 The agent itself is attached only to the Docker `--internal` execution
 network; only the proxy sidecar is attached to the separate non-internal
 uplink. The host supervisor removes the agent first, then the proxy, then the
