@@ -33,11 +33,13 @@ from .core import (
     snapshot_hash,
     unsafe_workspace_links,
     task_workspace,
+    write_internal_file,
 )
 from .supervisor import run_agent, run_verification_command
 from .drive import drive_task
 from .hooks import run_hook_cli
-from .providers import provider_status
+from .providers import provider_status, get_adapter
+from .discovery import discover_project, propose_contract
 from .dashboard import run_dashboard
 from .locks import task_execution_lock
 
@@ -83,6 +85,82 @@ def cmd_start(args: argparse.Namespace) -> int:
     print("Or use a configured generic adapter with `narrow drive --agent NAME`.")
     return 0
 
+
+
+def cmd_discover(args: argparse.Namespace) -> int:
+    """Inspect project manifests and optionally add discovered checks to config."""
+    root = find_repo_root()
+    result = discover_project(root)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(f"NARROW project discovery — {root}")
+        print("Languages: " + (", ".join(result["languages"]) or "not identified"))
+        print("Test frameworks: " + (", ".join(result["frameworks"]) or "not identified"))
+        print("Suggested checks:")
+        for item in result["checks"]:
+            print(f"  {item['name']}: {shlex.join(item['command'])}")
+            print(f"    {item['reason']}")
+        print("Suggested allowed paths: " + (", ".join(result["suggested_allow"]) or "none; define a narrow allowlist manually"))
+        print("Suggested denied paths: " + ", ".join(result["suggested_deny"]))
+        if result["scan_limit_reached"]:
+            print("Warning: file scan limit reached; discovery may be incomplete.")
+    if not args.apply:
+        print("Read-only discovery. No commands were run and no config was changed.")
+        return 0
+    if not result["checks"]:
+        print("No recognizable test command was found; configuration was not changed.")
+        return 0
+    init_project(root)
+    config = load_config(root)
+    existing = config.setdefault("checks", {})
+    additions = {item["name"]: {key: item[key] for key in ("command", "timeout_seconds")} for item in result["checks"] if item["name"] not in existing}
+    if not additions:
+        print("No changes: every discovered check already has a configured entry.")
+        return 0
+    print("The following commands will be added to .narrow/config.json:")
+    for name, spec in additions.items():
+        print(f"  {name}: {shlex.join(spec['command'])}")
+    try:
+        answer = input("Add these suggestions? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in {"y", "yes"}:
+        print("Cancelled. No configuration was changed.")
+        return 1
+    existing.update(additions)
+    write_internal_file(root / ".narrow", "config.json", json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    print("Added " + str(len(additions)) + " suggested check(s). Review each command before running narrow verify or narrow drive.")
+    return 0
+
+
+def cmd_propose(args: argparse.Namespace) -> int:
+    """Draft a task contract. This command never starts an agent or writes files."""
+    root = find_repo_root()
+    model = args.model if args.ollama else None
+    proposal = propose_contract(root, args.goal, ollama_model=model)
+    if args.json:
+        print(json.dumps(proposal, ensure_ascii=False, indent=2))
+        return 0
+    print("NARROW task proposal — review before using")
+    print("Title: " + proposal["title"])
+    print("Goal: " + proposal["goal"])
+    print("Allowed paths:")
+    for item in proposal["allow"]:
+        print("  " + item)
+    print("Denied paths:")
+    for item in proposal["deny"]:
+        print("  " + item)
+    print("Acceptance criteria:")
+    for index, item in enumerate(proposal["accept"], 1):
+        print(f"  {index}. {item}")
+    print("Suggested checks:")
+    for item in proposal["checks"]:
+        print(f"  {item['name']}: {shlex.join(item['command'])}")
+    print("Generation: " + proposal["generation"])
+    print(proposal["warning"])
+    print("NARROW has not created the task. Review the paths and criteria, then pass them explicitly to narrow start.")
+    return 0
 
 
 def cmd_providers(args: argparse.Namespace) -> int:
@@ -349,7 +427,8 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     verify_env = os.environ.copy()
     verify_env["PYTHONDONTWRITEBYTECODE"] = "1"
     exit_code, output = run_verification_command(
-        command, cwd=workspace, env=verify_env, timeout=timeout, _lock_fd=_lock_fd
+        command, cwd=workspace, env=verify_env, timeout=timeout, _lock_fd=_lock_fd,
+        sandbox=config.get("verification_sandbox", {"mode": "off"}),
     )
     duration = int((time.monotonic() - started) * 1000)
     after = snapshot_hash(workspace)
@@ -548,6 +627,18 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="Initialize local NARROW metadata and configuration.").set_defaults(func=cmd_init)
 
+    discover = sub.add_parser("discover", help="Read project manifests and suggest verification commands.")
+    discover.add_argument("--apply", action="store_true", help="Review and add discovered checks to .narrow/config.json.")
+    discover.add_argument("--json", action="store_true", help="Emit the discovery report as JSON.")
+    discover.set_defaults(func=cmd_discover)
+
+    propose = sub.add_parser("propose", help="Draft a task contract from a plain-language goal.")
+    propose.add_argument("goal")
+    propose.add_argument("--ollama", action="store_true", help="Use an explicitly selected local Ollama model; bounded source context is sent only to localhost.")
+    propose.add_argument("--model", default="llama3:8b", help="Local Ollama model name (default: llama3:8b).")
+    propose.add_argument("--json", action="store_true", help="Emit the task proposal as JSON.")
+    propose.set_defaults(func=cmd_propose)
+
     start = sub.add_parser("start", help="Create a task in an isolated repository copy.")
     start.add_argument("--title", required=True)
     start.add_argument("--goal", required=True)
@@ -572,7 +663,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     adapter_group = drive.add_mutually_exclusive_group(required=True)
     adapter_group.add_argument("--agent", help="Name of an agent entry in .narrow/config.json.")
-    adapter_group.add_argument("--provider", choices=("claude", "codex"), help="Use a supported native Claude Code or Codex CLI adapter.")
+    adapter_group.add_argument("--provider", help="Use a built-in or installed narrow.adapters provider plugin.")
     drive.add_argument("--model", help="Optional provider model name; provider defaults are used when omitted.")
     drive.add_argument("--effort", choices=("low", "medium", "high", "xhigh", "max"), help="Optional reasoning effort. `max` is Claude-only; supported levels depend on the selected model and account.")
     drive.add_argument("--max-turns", type=int, default=40, help="Claude Code turn budget (1–200; Codex ignores this setting).")
