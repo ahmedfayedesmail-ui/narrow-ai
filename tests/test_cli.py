@@ -33,6 +33,9 @@ class CliTests(unittest.TestCase):
         self.assertEqual(proposal.goal, "Fix login timeout")
         self.assertTrue(proposal.ollama)
         self.assertEqual(proposal.model, "llama3:8b")
+        history = parser.parse_args(["contract-history", "--task", "task_123", "--json"])
+        self.assertEqual(history.task, "task_123")
+        self.assertTrue(history.json)
         drive = parser.parse_args(["drive", "--provider", "my-agent"])
         self.assertEqual(drive.provider, "my-agent")
 
