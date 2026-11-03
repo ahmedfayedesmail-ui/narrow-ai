@@ -87,6 +87,24 @@ def main() -> int:
     git(project, "commit", "-m", "Create disposable demo project")
 
     run([sys.executable, "-m", "narrow", "init"], cwd=project, env=env)
+    # Keep fixture diagnostics explicit when platform-specific Git ignore behavior differs.
+    status = subprocess.run(
+        ["git", "-C", str(project), "status", "--porcelain=v1", "--untracked-files=all"],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout
+    ignored = subprocess.run(
+        ["git", "-C", str(project), "check-ignore", "-v", ".narrow/config.json"],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    exclude_path = project / ".git" / "info" / "exclude"
+    print(f"Fixture status after narrow init: {status!r}")
+    print(f"Fixture .narrow ignore match: {ignored.stdout.strip() or '<no match>'}")
+    print(f"Fixture local exclude file: {exclude_path.read_text(encoding='utf-8')!r}")
+
     config_path = project / ".narrow" / "config.json"
     config = json.loads(config_path.read_text(encoding="utf-8"))
     config["agents"] = {
