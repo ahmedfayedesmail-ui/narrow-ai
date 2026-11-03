@@ -89,3 +89,37 @@ This feature does not provide Firecracker or another microVM runtime, does not
 contain generic AI agent execution, and is not an independent security review.
 For high-risk repositories use a disposable VM with no host credentials,
 restricted mounts, and a low-privilege account.
+
+## Other hardening included on this feature branch
+
+The local Control Center remains read-only. Each dashboard launch generates a
+cryptographically random API token. The token is passed only in the URL
+fragment (not sent in HTTP requests or Referer headers), moved into browser
+session storage, and sent in the `X-NARROW-Token` header. API requests also
+retain loopback Host and same-origin checks. POST/PUT/DELETE remain disabled
+even with a valid token; this is not a write-mode dashboard.
+
+On Windows, supervised direct child processes are assigned to a Job Object
+configured with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`. If NARROW exits after
+assignment, Windows closes the non-inherited Job handle and terminates
+processes already associated with it. Assignment currently happens immediately
+after Python's process creation call returns; that leaves a small startup race
+before assignment, and a child deliberately created with breakaway semantics
+may escape. This branch does not claim the full Windows crash-lifetime gate is
+closed until adversarial Windows CI validates those cases. A Docker daemon
+container also has its own lifecycle and is not controlled solely by a
+Windows Job Object around the Docker CLI.
+
+Verification rows now carry an HMAC-SHA256 signature over the task, check name,
+snapshot, command, result, duration, timestamp, and digest of the retained
+output. NARROW requires a valid signature for the latest configured check
+before `finish`. The 32-byte key is stored in a private per-project file under
+the user's NARROW cache, outside the task workspace. This detects tampering
+with SQLite rows/events alone; it is not protection against a compromised
+host account or an attacker who can read or replace the local key.
+
+For automatic contract generation, NARROW records the generated proposal and
+the human-approved contract as separate immutable versions and stores a
+field-level diff. Use `narrow contract-history --task <id>` to inspect it.
+The approved contract remains immutable during a task; changing scope requires
+a new task rather than silently mutating an active task's boundaries.
