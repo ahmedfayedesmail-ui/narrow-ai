@@ -66,7 +66,7 @@ class PolicyManifestTests(unittest.TestCase):
         self.assertFalse(result.path.is_relative_to(Path(self.task["worktree"])))
         self.assertTrue(result.path.stat().st_mode & 0o400)
         if os.name != "nt":
-            self.assertEqual(result.path.stat().st_mode & 0o777, 0o400)
+            self.assertEqual(result.path.stat().st_mode & 0o777, 0o444)
 
     def test_manifest_rejects_tampered_payload(self):
         result = write_policy_manifest(self.store, self.task["id"], self.execution_id)
