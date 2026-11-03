@@ -10,12 +10,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .container_lifecycle import agent_container_labels, cleanup_execution_agent_containers, list_execution_agent_networks
+from .container_lifecycle import (\n    agent_container_labels,\n    cleanup_execution_agent_containers,\n    cleanup_execution_agent_networks,\n    list_execution_agent_containers,\n    list_execution_agent_networks,\n)
 from .core import NarrowError, Store, task_workspace
 from .policy_manifest import _validate_execution_id
 from .agent_runtime import normalize_provider_argv, validate_agent_image
 from .credential_broker import CredentialLease, validate_credential_lease
-from .policy_manifest import read_policy_manifest
+from .policy_manifest import read_policy_manifest\nfrom .container_hooks import import_container_hook_events\nfrom .credential_broker import revoke_credential_lease
 
 _TASK_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
@@ -359,7 +359,6 @@ def run_container_agent(
 
     process: subprocess.Popen[bytes] | None = None
     timed_out = False
-    interrupted = False
     try:
         process = subprocess.Popen(
             launch,
@@ -394,7 +393,6 @@ def run_container_agent(
                 time.sleep(min(0.1, remaining))
             exit_code = process.wait(timeout=5)
         except KeyboardInterrupt:
-            interrupted = True
             _stop_group(process)
             raise
         finally:
@@ -413,9 +411,43 @@ def run_container_agent(
             return 124, bytes(captured).decode("utf-8", errors="replace")
         return exit_code, bytes(captured).decode("utf-8", errors="replace")
     finally:
+        cleanup_errors: list[str] = []
         if process is not None and process.poll() is None:
-            _stop_group(process)
-        cleanup_execution_agent_containers("docker", task_id, execution_id)
+            try:
+                _stop_group(process)
+            except Exception as exc:
+                cleanup_errors.append(f"docker-client-stop:{type(exc).__name__}")
+        try:
+            cleanup_execution_agent_containers("docker", task_id, expected_execution)
+        except Exception as exc:
+            cleanup_errors.append(f"agent-container-cleanup:{type(exc).__name__}")
+
+        spool_path = task_home / ".local" / "state" / "narrow" / "hook-events.jsonl"
+        if spool_path.exists() or spool_path.is_symlink():
+            try:
+                imported = import_container_hook_events(store, task_id, expected_execution, spool_path)
+                store.add_event(task_id, "CONTAINER_HOOK_TELEMETRY_IMPORTED", {
+                    "execution_id": expected_execution,
+                    "imported_events": imported,
+                    "trust": "untrusted_agent_telemetry",
+                })
+            except Exception as exc:
+                cleanup_errors.append(f"hook-import:{type(exc).__name__}")
+
+        try:
+            revoke_credential_lease(credential_lease)
+        except Exception as exc:
+            cleanup_errors.append(f"credential-revocation:{type(exc).__name__}")
+
+        try:
+            remaining = list_execution_agent_containers("docker", task_id, expected_execution)
+            if not remaining:
+                cleanup_execution_agent_networks("docker", task_id, expected_execution)
+            else:
+                cleanup_errors.append("network-preserved-agent-container-still-exists")
+        except Exception as exc:
+            cleanup_errors.append(f"network-cleanup:{type(exc).__name__}")
+
         if cidfile.exists() or cidfile.is_symlink():
             try:
                 info = cidfile.lstat()
@@ -425,7 +457,9 @@ def run_container_agent(
                 if raw_id and not _CONTAINER_ID.fullmatch(raw_id):
                     raise NarrowError("Docker returned a malformed container ID; the record was retained for manual inspection.")
                 cidfile.unlink()
-            except OSError as exc:
-                raise NarrowError("Could not safely remove the private Docker cidfile.") from exc
-        if interrupted:
-            pass
+            except Exception as exc:
+                cleanup_errors.append(f"cidfile-cleanup:{type(exc).__name__}")
+        if cleanup_errors:
+            raise NarrowError(
+                "Docker agent execution ended but cleanup needs attention: " + ", ".join(cleanup_errors)
+            )
