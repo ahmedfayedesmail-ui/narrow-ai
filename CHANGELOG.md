@@ -100,3 +100,24 @@ All notable changes to NARROW are documented here.
 - Generic CLI agent wrapper, compact handoff, explicit check approval, and bounded repair loop.
 - Snapshot-bound checks and human acceptance gate.
 - Initial security and threat model.
+
+## Post-v0.5.1 container runtime groundwork (unreleased)
+
+### Added
+- Task/execution-scoped JSON policy manifests with virtual `/workspace` paths and explicit integrity validation.
+- POSIX provider-credential leases, a constrained in-container Codex entrypoint, and digest-pinned Codex image/argument validation.
+- A deterministic Docker agent command builder with explicit mounts, non-root identity, read-only root filesystem, bounded resources, no-new-privileges, and per-execution proxy capability settings.
+- A POSIX/local-Docker host supervisor with bounded JSONL event streaming, exact ownership labels, credential revocation, cleanup, and untrusted hook-telemetry import.
+- An operator-invoked `narrow recover-agent` command for one explicitly selected stale task/execution.
+- Ownership-checked lifecycle primitives for execution-specific internal agent networks, egress-proxy sidecars, and a separate proxy uplink network.
+- A dual-homed proxy sidecar provisioner with explicit uplink gateway priority, inspected network attachments, sidecar readiness checks, and route-table verification.
+- An opt-in `narrow drive --provider codex --container-agent` path that wires the policy manifest, credential lease, proxy capability mount, container command builder, and host supervisor into the bounded repair loop.
+- A private mounted proxy-token file; the bearer capability is no longer placed in Docker CLI environment arguments.
+- Linux Docker E2E smoke coverage and reproducible example Dockerfiles for the experimental Codex agent and proxy images.
+
+### Security and maturity limits
+- The new Docker E2E job has been added but has not yet produced a successful run on this branch. Do not claim the topology is verified until that job passes on the exact PR head.
+- The current container profile is POSIX/local-Docker only. Windows credential-DACL support and Windows container supervision are not implemented.
+- Docker's internal bridge has no default route for the agent and the entrypoint fails closed if one is present. The host bridge gateway remains reachable where host services permit it; the Docker daemon and host kernel are trusted.
+- The mounted provider key remains readable by code running inside the agent. This is host-credential isolation, not protection from a malicious agent.
+- This work is unreleased feature-branch code and does not change the published v0.5.1 package or its Alpha maturity classification.

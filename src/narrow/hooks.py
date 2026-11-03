@@ -339,6 +339,9 @@ def run_hook_cli(argv: list[str]) -> int:
     if len(argv) != 2 or argv[0] != "claude":
         raise NarrowError("Usage: narrow hook claude <session-start|pre-tool-use|post-tool-use|post-tool-use-failure|pre-compact|stop|session-end|subagent-start|subagent-stop|task-created|task-completed>.")
     try:
+        if os.environ.get("NARROW_POLICY_MANIFEST"):
+            from .container_hooks import handle_container_claude_hook
+            return handle_container_claude_hook(argv[1])
         return handle_claude_hook(argv[1])
     except NarrowError as exc:
         # PreToolUse catches its failures and blocks. Lifecycle hooks warn and

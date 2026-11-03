@@ -95,6 +95,67 @@ jobs:
           PYTHONPATH: src
         run: python -m narrow --version
 
+  container-runtime:
+    if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - name: Resolve immutable base-image digests
+        id: bases
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker pull node:22-bookworm-slim
+          docker pull python:3.12-slim-bookworm
+          NODE_BASE_IMAGE="$(docker image inspect --format='{{index .RepoDigests 0}}' node:22-bookworm-slim)"
+          PYTHON_BASE_IMAGE="$(docker image inspect --format='{{index .RepoDigests 0}}' python:3.12-slim-bookworm)"
+          grep -Eq '@sha256:[0-9a-f]{64}$' <<< "$NODE_BASE_IMAGE"
+          grep -Eq '@sha256:[0-9a-f]{64}$' <<< "$PYTHON_BASE_IMAGE"
+          echo "NODE_BASE_IMAGE=$NODE_BASE_IMAGE" >> "$GITHUB_OUTPUT"
+          echo "PYTHON_BASE_IMAGE=$PYTHON_BASE_IMAGE" >> "$GITHUB_OUTPUT"
+      - name: Build the digest-pinned Codex agent image
+        env:
+          BASE_IMAGE: ${{ steps.bases.outputs.NODE_BASE_IMAGE }}
+        run: |
+          docker build --build-arg BASE_IMAGE="$BASE_IMAGE" --build-arg CODEX_VERSION=0.166.0 -f examples/containers/codex-agent.Dockerfile -t narrow-codex-agent:ci .
+      - name: Build the digest-pinned proxy image
+        env:
+          BASE_IMAGE: ${{ steps.bases.outputs.PYTHON_BASE_IMAGE }}
+        run: |
+          docker build --build-arg BASE_IMAGE="$BASE_IMAGE" -f examples/containers/egress-proxy.Dockerfile -t narrow-egress-proxy:ci .
+      - name: Start local OCI registry and publish the test images
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --detach --rm --name narrow-ci-registry -p 5000:5000 registry:2
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
+          docker tag narrow-codex-agent:ci localhost:5000/narrow-codex-agent:ci
+          docker tag narrow-egress-proxy:ci localhost:5000/narrow-egress-proxy:ci
+          docker push localhost:5000/narrow-codex-agent:ci
+          docker push localhost:5000/narrow-egress-proxy:ci
+          AGENT_DIGEST="$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-codex-agent:ci)"
+          PROXY_DIGEST="$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-egress-proxy:ci)"
+          grep -Eq '@sha256:[0-9a-f]{64}$' <<< "$AGENT_DIGEST"
+          grep -Eq '@sha256:[0-9a-f]{64}$' <<< "$PROXY_DIGEST"
+          echo "NARROW_AGENT_IMAGE=$AGENT_DIGEST" >> "$GITHUB_ENV"
+          echo "NARROW_PROXY_IMAGE=$PROXY_DIGEST" >> "$GITHUB_ENV"
+      - name: Run real Docker proxy-only egress acceptance test
+        env:
+          NARROW_DOCKER_E2E: "1"
+          PYTHONPATH: src
+        run: python -W error::ResourceWarning -m unittest discover -s tests -p test_container_egress_integration.py -v
+      - name: Remove local test registry
+        if: always()
+        run: docker rm --force narrow-ci-registry || true
+
   package:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
     runs-on: ubuntu-latest

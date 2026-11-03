@@ -44,6 +44,7 @@ from .discovery import discover_project, propose_contract
 from .dashboard import run_dashboard
 from .locks import task_execution_lock
 from .sandbox import prepare_sandbox_command
+from .container_recovery import recover_agent_execution
 
 
 def _find_root() -> Path:
@@ -411,6 +412,7 @@ def cmd_drive(args: argparse.Namespace) -> int:
         allow_subagents=args.allow_subagents,
         effort=args.effort,
         ultracode=args.ultracode,
+        container_agent=args.container_agent,
     )
 
 
@@ -745,6 +747,30 @@ def cmd_finish(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     return 2
 
 
+
+
+def cmd_recover_agent(args: argparse.Namespace) -> int:
+    """Recover one explicitly selected stale container-agent execution."""
+    store = _store()
+    task = store.get_task(args.task)
+    if not args.yes:
+        try:
+            answer = input(
+                f"Remove stale NARROW containers, credentials, and network for task {task['id']} / execution {args.execution}? [y/N] "
+            ).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in {"y", "yes"}:
+            print("Cancelled. No runtime resource was changed.")
+            return 1
+    report = recover_agent_execution(store, task["id"], args.execution)
+    print(json.dumps({
+        "schema": "narrow.runtime-recovery.v1",
+        "task_id": task["id"],
+        **report,
+    }, ensure_ascii=False, indent=2))
+    return 0
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="narrow",
@@ -809,6 +835,7 @@ def build_parser() -> argparse.ArgumentParser:
     drive.add_argument("--yes-checks", action="store_true", help="Approve configured checks without prompting; use only after reviewing them.")
     drive.add_argument("--allow-subagents", action="store_true", help="Opt in to Claude Agent/task tools. Subagents share the task workspace; NARROW monitors scope but this is not a separate sandbox.")
     drive.add_argument("--ultracode", action="store_true", help="Opt in to Claude Code dynamic multi-agent workflows (requires --allow-subagents; higher autonomy and cost).")
+    drive.add_argument("--container-agent", action="store_true", help="Opt in to the experimental POSIX Docker Codex runtime. Requires digest-pinned agent_container images, OPENAI_API_KEY, and exact egress allowlist in .narrow/config.json.")
     drive.set_defaults(func=cmd_drive)
 
     providers = sub.add_parser("providers", help="Detect supported Claude Code and Codex CLI installations.")
@@ -875,6 +902,15 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard.add_argument("--port", type=int, default=8765, help="Loopback port (1024–65535; default 8765).")
     dashboard.add_argument("--open", action="store_true", help="Open the dashboard in the default browser.")
     dashboard.set_defaults(func=cmd_dashboard)
+
+    recover = sub.add_parser(
+        "recover-agent",
+        help="Clean up one explicitly selected stale Docker agent execution after host interruption.",
+    )
+    recover.add_argument("--task", required=True, help="Exact NARROW task ID to recover.")
+    recover.add_argument("--execution", required=True, help="Exact execution UUID to recover.")
+    recover.add_argument("--yes", action="store_true", help="Confirm cleanup without an interactive prompt.")
+    recover.set_defaults(func=cmd_recover_agent)
 
     finish = sub.add_parser("finish", help="Mark verified completion only when all gates pass.")
     finish.add_argument("--task")
