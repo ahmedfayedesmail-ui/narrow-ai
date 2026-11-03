@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import hmac
 import ipaddress
+import math
 import os
 import re
 import select
@@ -259,7 +260,7 @@ class _ConnectHandler(socketserver.StreamRequestHandler):
                 if not separator or not _HEADER_NAME.fullmatch(name):
                     return None
                 key = name.lower()
-                if key in headers or value.startswith((" ", "\t")):
+                if key in headers:
                     return None
                 headers[key] = value.strip()
             except (UnicodeDecodeError, ValueError):
@@ -271,8 +272,8 @@ class _ConnectHandler(socketserver.StreamRequestHandler):
     def _tunnel(self, upstream: socket.socket) -> None:
         client = self.connection
         started = last_activity = time.monotonic()
-        client.setblocking(False)
-        upstream.setblocking(False)
+        client.settimeout(self.server.config.idle_timeout)
+        upstream.settimeout(self.server.config.idle_timeout)
         while True:
             now = time.monotonic()
             if now - started >= self.server.config.tunnel_timeout:
@@ -340,7 +341,7 @@ class _ConnectHandler(socketserver.StreamRequestHandler):
 
         try:
             self.connection.settimeout(config.idle_timeout)
-            self.wfile.write(b"HTTP/1.1 200 Connection Established\r\nConnection: close\r\n\r\n")
+            self.wfile.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
             self.wfile.flush()
             self._tunnel(upstream)
         except OSError:
@@ -357,12 +358,24 @@ class EgressProxy:
         allowed = normalize_allowlist(config.allowed_hosts)
         if not 1 <= config.port <= 65535:
             raise ProxyPolicyError("Proxy port must be between 1 and 65535.")
-        if config.max_connections < 1 or config.max_connections > 256:
-            raise ProxyPolicyError("Proxy connection limit must be between 1 and 256.")
-        if config.connect_timeout <= 0 or config.idle_timeout <= 0 or config.tunnel_timeout <= 0:
-            raise ProxyPolicyError("Proxy timeouts must be positive.")
-        if len(config.token) < 32 or len(config.token) > 512:
-            raise ProxyPolicyError("Proxy bearer token must contain at least 32 characters.")
+        if (
+            not isinstance(config.max_connections, int)
+            or isinstance(config.max_connections, bool)
+            or config.max_connections < 1
+            or config.max_connections > 256
+        ):
+            raise ProxyPolicyError("Proxy connection limit must be an integer between 1 and 256.")
+        timeouts = (config.connect_timeout, config.idle_timeout, config.tunnel_timeout)
+        if any(
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            or value <= 0
+            for value in timeouts
+        ):
+            raise ProxyPolicyError("Proxy timeouts must be finite positive numbers.")
+        if not isinstance(config.token, str) or len(config.token) < 32 or len(config.token) > 512:
+            raise ProxyPolicyError("Proxy bearer token must contain 32–512 characters.")
         self.config = ProxyConfig(
             bind_host=bind_host,
             port=config.port,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 import socket
 import tempfile
@@ -10,6 +11,7 @@ from unittest.mock import patch
 from narrow.egress_proxy import (
     EgressProxy,
     ProxyConfig,
+    _ConnectHandler,
     ProxyPolicyError,
     check_proxy_token,
     normalize_allowlist,
@@ -65,6 +67,42 @@ class EgressProxyPolicyTests(unittest.TestCase):
                 ["api.anthropic.com"],
                 resolver=lambda *args, **kwargs: mixed,
             )
+
+    def test_connect_request_accepts_standard_header_spacing(self):
+        handler = object.__new__(_ConnectHandler)
+        handler.rfile = io.BytesIO(
+            b"CONNECT api.anthropic.com:443 HTTP/1.1\r\n"
+            b"Host: api.anthropic.com:443\r\n"
+            b"Proxy-Authorization: Bearer " + b"x" * 48 + b"\r\n"
+            b"\r\n"
+        )
+        request = handler._read_request()
+        self.assertIsNotNone(request)
+        authority, headers = request
+        self.assertEqual(authority, "api.anthropic.com:443")
+        self.assertEqual(headers["host"], "api.anthropic.com:443")
+
+    def test_connect_request_rejects_duplicate_auth_headers(self):
+        handler = object.__new__(_ConnectHandler)
+        handler.rfile = io.BytesIO(
+            b"CONNECT api.anthropic.com:443 HTTP/1.1\r\n"
+            b"Host: api.anthropic.com:443\r\n"
+            b"Proxy-Authorization: Bearer " + b"x" * 48 + b"\r\n"
+            b"Proxy-Authorization: Bearer " + b"x" * 48 + b"\r\n"
+            b"\r\n"
+        )
+        self.assertIsNone(handler._read_request())
+
+    def test_proxy_rejects_nonfinite_timeouts(self):
+        config = ProxyConfig(
+            bind_host="127.0.0.1",
+            port=3128,
+            allowed_hosts=frozenset({"api.anthropic.com"}),
+            token="x" * 48,
+            idle_timeout=float("nan"),
+        )
+        with self.assertRaises(ProxyPolicyError):
+            EgressProxy(config)
 
     def test_dns_failure_and_empty_results_fail_closed(self):
         with self.assertRaises(ProxyPolicyError):
