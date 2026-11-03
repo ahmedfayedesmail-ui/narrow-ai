@@ -1,15 +1,15 @@
-"""Fail-closed Windows Job Object supervision for subprocess.Popen children.
+"""Fail-closed Windows Job Object supervision for subprocess children.
 
-Windows children are created suspended, assigned to a kill-on-close Job Object,
-and only then resumed. The CREATE_BREAKAWAY_FROM_JOB flag is deliberately
-never used: it opts a process out of its parent's Job Object rather than
-preventing descendants from escaping.
+The Job Object is attached through PROC_THREAD_ATTRIBUTE_JOB_LIST as part of
+CreateProcessW. This removes the create-then-assign race: the child is born in
+the kill-on-close Job, not briefly alive outside it.
 """
 from __future__ import annotations
 
 import ctypes
 import os
 import subprocess
+import sys
 from ctypes import wintypes
 from typing import Any
 
@@ -17,11 +17,12 @@ from .core import NarrowError
 
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
 JOB_OBJECT_EXTENDED_LIMIT_INFORMATION = 9
-CREATE_SUSPENDED = 0x00000004
-THREAD_SUSPEND_RESUME = 0x0002
-TH32CS_SNAPTHREAD = 0x00000004
-INVALID_HANDLE_VALUE = ctypes.c_void_p(-1).value
-_RESUME_FAILED = 0xFFFFFFFF
+EXTENDED_STARTUPINFO_PRESENT = 0x00080000
+CREATE_UNICODE_ENVIRONMENT = 0x00000400
+STARTF_USESTDHANDLES = 0x00000100
+PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002
+PROC_THREAD_ATTRIBUTE_JOB_LIST = 0x0002000D
+ERROR_INSUFFICIENT_BUFFER = 122
 
 
 class _BasicLimitInformation(ctypes.Structure):
@@ -60,15 +61,42 @@ class _ExtendedLimitInformation(ctypes.Structure):
     ]
 
 
-class _ThreadEntry32(ctypes.Structure):
+class _StartupInfoW(ctypes.Structure):
     _fields_ = [
-        ("dwSize", wintypes.DWORD),
-        ("cntUsage", wintypes.DWORD),
-        ("th32ThreadID", wintypes.DWORD),
-        ("th32OwnerProcessID", wintypes.DWORD),
-        ("tpBasePri", wintypes.LONG),
-        ("tpDeltaPri", wintypes.LONG),
+        ("cb", wintypes.DWORD),
+        ("lpReserved", wintypes.LPWSTR),
+        ("lpDesktop", wintypes.LPWSTR),
+        ("lpTitle", wintypes.LPWSTR),
+        ("dwX", wintypes.DWORD),
+        ("dwY", wintypes.DWORD),
+        ("dwXSize", wintypes.DWORD),
+        ("dwYSize", wintypes.DWORD),
+        ("dwXCountChars", wintypes.DWORD),
+        ("dwYCountChars", wintypes.DWORD),
+        ("dwFillAttribute", wintypes.DWORD),
         ("dwFlags", wintypes.DWORD),
+        ("wShowWindow", wintypes.WORD),
+        ("cbReserved2", wintypes.WORD),
+        ("lpReserved2", ctypes.c_void_p),
+        ("hStdInput", wintypes.HANDLE),
+        ("hStdOutput", wintypes.HANDLE),
+        ("hStdError", wintypes.HANDLE),
+    ]
+
+
+class _StartupInfoExW(ctypes.Structure):
+    _fields_ = [
+        ("StartupInfo", _StartupInfoW),
+        ("lpAttributeList", ctypes.c_void_p),
+    ]
+
+
+class _ProcessInformation(ctypes.Structure):
+    _fields_ = [
+        ("hProcess", wintypes.HANDLE),
+        ("hThread", wintypes.HANDLE),
+        ("dwProcessId", wintypes.DWORD),
+        ("dwThreadId", wintypes.DWORD),
     ]
 
 
@@ -78,6 +106,21 @@ def _kernel32() -> Any:
     return ctypes.WinDLL("kernel32", use_last_error=True)
 
 
+def _configure_job_apis(kernel32: Any) -> None:
+    kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.SetInformationJobObject.argtypes = [
+        wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD
+    ]
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.SetHandleInformation.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD]
+    kernel32.SetHandleInformation.restype = wintypes.BOOL
+    kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateJobObject.restype = wintypes.BOOL
+
+
 class WindowsJob:
     """Own a non-inheritable Job Object; closing it kills all associated processes."""
 
@@ -85,28 +128,26 @@ class WindowsJob:
         self._handle = handle
         self._kernel32 = _kernel32()
 
+    @property
+    def handle_value(self) -> int:
+        if not self._handle:
+            raise NarrowError("The Windows Job Object handle is already closed.")
+        return int(self._handle)
+
     @classmethod
     def create(cls) -> "WindowsJob":
         kernel32 = _kernel32()
-        kernel32.CreateJobObjectW.argtypes = [ctypes.c_void_p, wintypes.LPCWSTR]
-        kernel32.CreateJobObjectW.restype = wintypes.HANDLE
-        kernel32.SetInformationJobObject.argtypes = [
-            wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD
-        ]
-        kernel32.SetInformationJobObject.restype = wintypes.BOOL
-        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-        kernel32.CloseHandle.restype = wintypes.BOOL
-        kernel32.SetHandleInformation.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD]
-        kernel32.SetHandleInformation.restype = wintypes.BOOL
-
+        _configure_job_apis(kernel32)
         handle = kernel32.CreateJobObjectW(None, None)
         if not handle:
             raise NarrowError(f"Could not create Windows Job Object (WinError {ctypes.get_last_error()}).")
         try:
-            # Explicitly clear inheritance, even though the default security
-            # attributes already create a non-inheritable handle.
+            # The Job handle must remain private to the NARROW supervisor.
             if not kernel32.SetHandleInformation(handle, 0x00000001, 0):
-                raise NarrowError(f"Could not make Job Object handle non-inheritable (WinError {ctypes.get_last_error()}).")
+                raise NarrowError(
+                    f"Could not make Job Object handle non-inheritable "
+                    f"(WinError {ctypes.get_last_error()})."
+                )
             limits = _ExtendedLimitInformation()
             limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             if not kernel32.SetInformationJobObject(
@@ -118,48 +159,22 @@ class WindowsJob:
                 raise NarrowError(
                     f"Could not configure Windows Job Object (WinError {ctypes.get_last_error()})."
                 )
-            # Default CreateJobObject security attributes make this handle
-            # non-inheritable. Do not enable BREAKAWAY_OK or SILENT_BREAKAWAY_OK.
+            # Do not enable BREAKAWAY_OK or SILENT_BREAKAWAY_OK.
             return cls(handle)
-        except Exception:
+        except BaseException:
             kernel32.CloseHandle(handle)
             raise
-
-    def assign_suspended(self, process: subprocess.Popen[Any]) -> None:
-        """Assign a still-suspended Popen child before its first instruction runs."""
-        if process.poll() is not None:
-            raise NarrowError("The child process exited before Job Object assignment.")
-        self._kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
-        self._kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
-        self._kernel32.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
-        self._kernel32.IsProcessInJob.restype = wintypes.BOOL
-        process_handle = wintypes.HANDLE(int(process._handle))  # type: ignore[attr-defined]
-        if not self._kernel32.AssignProcessToJobObject(self._handle, process_handle):
-            raise NarrowError(
-                f"Could not assign suspended child to Windows Job Object "
-                f"(WinError {ctypes.get_last_error()})."
-            )
-        is_member = wintypes.BOOL()
-        if not self._kernel32.IsProcessInJob(process_handle, self._handle, ctypes.byref(is_member)):
-            raise NarrowError(f"Could not verify Job Object membership (WinError {ctypes.get_last_error()}).")
-        if not is_member.value:
-            raise NarrowError("Windows reported that the suspended child is not a member of its assigned Job Object.")
 
     def terminate(self, exit_code: int = 1) -> None:
         if not self._handle:
             return
-        self._kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
-        self._kernel32.TerminateJobObject.restype = wintypes.BOOL
         if not self._kernel32.TerminateJobObject(self._handle, exit_code):
             raise OSError(ctypes.get_last_error(), "TerminateJobObject failed")
 
     def close(self) -> None:
         handle, self._handle = self._handle, None
-        if handle:
-            self._kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-            self._kernel32.CloseHandle.restype = wintypes.BOOL
-            if not self._kernel32.CloseHandle(handle):
-                raise OSError(ctypes.get_last_error(), "CloseHandle(Job Object) failed")
+        if handle and not self._kernel32.CloseHandle(handle):
+            raise OSError(ctypes.get_last_error(), "CloseHandle(Job Object) failed")
 
     def __enter__(self) -> "WindowsJob":
         return self
@@ -174,69 +189,209 @@ class WindowsJob:
             pass
 
 
-def _resume_primary_thread(pid: int) -> None:
-    """Find and resume the one initial thread of a process created suspended.
+class _AtomicJobPopen(subprocess.Popen[Any]):
+    """Popen-compatible launcher that puts the child in a Job at creation.
 
-    The target has not executed user-mode code, so it cannot have created
-    descendants or additional threads before this point.
+    CPython's public STARTUPINFO.lpAttributeList currently exposes only a
+    limited set of attributes. We therefore call CreateProcessW directly for
+    this one Windows-specific boundary while retaining Popen's pipe creation,
+    stream wrapping, polling, timeout, and lifecycle behavior.
     """
-    kernel32 = _kernel32()
-    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
-    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
-    kernel32.Thread32First.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ThreadEntry32)]
-    kernel32.Thread32First.restype = wintypes.BOOL
-    kernel32.Thread32Next.argtypes = [wintypes.HANDLE, ctypes.POINTER(_ThreadEntry32)]
-    kernel32.Thread32Next.restype = wintypes.BOOL
-    kernel32.SetLastError.argtypes = [wintypes.DWORD]
-    kernel32.SetLastError.restype = None
-    kernel32.OpenThread.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
-    kernel32.OpenThread.restype = wintypes.HANDLE
-    kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
-    kernel32.ResumeThread.restype = wintypes.DWORD
-    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
-    kernel32.CloseHandle.restype = wintypes.BOOL
 
-    snapshot = kernel32.CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0)
-    if not snapshot or snapshot == INVALID_HANDLE_VALUE:
-        raise NarrowError(f"Could not snapshot Windows threads (WinError {ctypes.get_last_error()}).")
-    thread_id: int | None = None
-    try:
-        entry = _ThreadEntry32()
-        entry.dwSize = ctypes.sizeof(_ThreadEntry32)
-        kernel32.SetLastError(0)
-        found = kernel32.Thread32First(snapshot, ctypes.byref(entry))
-        if not found:
-            raise NarrowError(f"Could not enumerate Windows threads (WinError {ctypes.get_last_error()}).")
-        while found:
-            if entry.th32OwnerProcessID == pid:
-                if thread_id is not None:
-                    raise NarrowError("A suspended child unexpectedly has more than one thread; refusing to resume it.")
-                thread_id = int(entry.th32ThreadID)
-            kernel32.SetLastError(0)
-            found = kernel32.Thread32Next(snapshot, ctypes.byref(entry))
-        enumeration_error = ctypes.get_last_error()
-        if enumeration_error not in {0, 18}:  # ERROR_NO_MORE_FILES marks normal end of enumeration.
-            raise NarrowError(f"Windows thread enumeration failed (WinError {enumeration_error}).")
-    finally:
-        kernel32.CloseHandle(snapshot)
+    def __init__(self, *args: Any, narrow_job_handle: int, **kwargs: Any) -> None:
+        self._narrow_job_handle = narrow_job_handle
+        super().__init__(*args, **kwargs)
 
-    if thread_id is None:
-        raise NarrowError("Could not find the suspended child's primary thread.")
+    def _execute_child(self, *parameters: Any) -> None:  # CPython Popen internal hook
+        if len(parameters) < 16:
+            raise RuntimeError("Unsupported CPython Popen._execute_child signature; refusing an unsafe Windows launch.")
+        (
+            args, executable, preexec_fn, close_fds, pass_fds, cwd, env,
+            startupinfo, creationflags, shell, p2cread, p2cwrite,
+            c2pread, c2pwrite, errread, errwrite,
+        ) = parameters[:16]
 
-    thread = kernel32.OpenThread(THREAD_SUSPEND_RESUME, False, thread_id)
-    if not thread:
-        raise NarrowError(f"Could not open the suspended primary thread (WinError {ctypes.get_last_error()}).")
-    try:
-        previous_count = int(kernel32.ResumeThread(thread))
-        if previous_count == _RESUME_FAILED:
-            raise NarrowError(f"Could not resume the supervised child (WinError {ctypes.get_last_error()}).")
-        if previous_count != 1:
-            raise NarrowError(
-                "The child's primary thread did not have the expected single suspend count; "
-                "the process will be terminated rather than resumed ambiguously."
+        if preexec_fn is not None or pass_fds:
+            raise ValueError("NARROW atomic Windows launch does not support preexec_fn or pass_fds.")
+        if shell:
+            raise ValueError("NARROW atomic Windows launch requires shell=False.")
+        if not close_fds:
+            raise ValueError("NARROW atomic Windows launch requires close_fds=True.")
+
+        if isinstance(args, str):
+            command_line = args
+        elif isinstance(args, bytes):
+            command_line = subprocess.list2cmdline([os.fsdecode(args)])
+        elif isinstance(args, os.PathLike):
+            command_line = subprocess.list2cmdline([os.fsdecode(args)])
+        else:
+            command_line = subprocess.list2cmdline([os.fsdecode(value) for value in args])
+        if executable is not None:
+            executable = os.fsdecode(executable)
+        if cwd is not None:
+            cwd = os.fsdecode(cwd)
+
+        if startupinfo is None:
+            startupinfo = subprocess.STARTUPINFO()
+        else:
+            startupinfo = startupinfo.copy()
+
+        use_std_handles = -1 not in (p2cread, c2pwrite, errwrite)
+        if use_std_handles:
+            startupinfo.dwFlags |= STARTF_USESTDHANDLES
+            startupinfo.hStdInput = p2cread
+            startupinfo.hStdOutput = c2pwrite
+            startupinfo.hStdError = errwrite
+
+        attributes = startupinfo.lpAttributeList or {}
+        unknown_attributes = set(attributes) - {"handle_list"}
+        if unknown_attributes:
+            raise ValueError(
+                "Unsupported STARTUPINFO attribute(s) for atomic Job launch: "
+                + ", ".join(sorted(unknown_attributes))
             )
-    finally:
-        kernel32.CloseHandle(thread)
+        inherited_handles = list(attributes.get("handle_list", []))
+        if use_std_handles:
+            inherited_handles.extend((int(p2cread), int(c2pwrite), int(errwrite)))
+        inherited_handles = self._filter_handle_list(inherited_handles)
+        inherited_handles = list(dict.fromkeys(inherited_handles))
+
+        # The handle-list attribute is required alongside JOB_LIST whenever
+        # stdio pipes are inherited and close_fds=True. Both are installed in
+        # the same STARTUPINFOEX list before CreateProcessW.
+        attribute_count = 1 + int(bool(inherited_handles))
+        kernel32 = _kernel32()
+        kernel32.InitializeProcThreadAttributeList.argtypes = [
+            ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD, ctypes.POINTER(ctypes.c_size_t)
+        ]
+        kernel32.InitializeProcThreadAttributeList.restype = wintypes.BOOL
+        kernel32.UpdateProcThreadAttribute.argtypes = [
+            ctypes.c_void_p, wintypes.DWORD, ctypes.c_size_t, ctypes.c_void_p,
+            ctypes.c_size_t, ctypes.c_void_p, ctypes.POINTER(ctypes.c_size_t),
+        ]
+        kernel32.UpdateProcThreadAttribute.restype = wintypes.BOOL
+        kernel32.DeleteProcThreadAttributeList.argtypes = [ctypes.c_void_p]
+        kernel32.DeleteProcThreadAttributeList.restype = None
+        kernel32.CreateProcessW.argtypes = [
+            wintypes.LPCWSTR, wintypes.LPWSTR, ctypes.c_void_p, ctypes.c_void_p,
+            wintypes.BOOL, wintypes.DWORD, ctypes.c_void_p, wintypes.LPCWSTR,
+            ctypes.POINTER(_StartupInfoW), ctypes.POINTER(_ProcessInformation),
+        ]
+        kernel32.CreateProcessW.restype = wintypes.BOOL
+        kernel32.GetCurrentProcess.argtypes = []
+        kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+        kernel32.DuplicateHandle.argtypes = [
+            wintypes.HANDLE, wintypes.HANDLE, wintypes.HANDLE,
+            ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD, wintypes.BOOL, wintypes.DWORD,
+        ]
+        kernel32.DuplicateHandle.restype = wintypes.BOOL
+
+        attribute_size = ctypes.c_size_t()
+        # The first call is documented to fail with ERROR_INSUFFICIENT_BUFFER.
+        initialized = kernel32.InitializeProcThreadAttributeList(
+            None, attribute_count, 0, ctypes.byref(attribute_size)
+        )
+        size_error = ctypes.get_last_error()
+        if initialized or size_error != ERROR_INSUFFICIENT_BUFFER or attribute_size.value == 0:
+            raise OSError(
+                size_error or ERROR_INSUFFICIENT_BUFFER,
+                "Could not size the Windows process attribute list",
+            )
+
+        attribute_buffer = ctypes.create_string_buffer(attribute_size.value)
+        attribute_pointer = ctypes.cast(attribute_buffer, ctypes.c_void_p)
+        if not kernel32.InitializeProcThreadAttributeList(
+            attribute_pointer, attribute_count, 0, ctypes.byref(attribute_size)
+        ):
+            raise OSError(ctypes.get_last_error(), "InitializeProcThreadAttributeList failed")
+
+        process_info = _ProcessInformation()
+        job_handles = (wintypes.HANDLE * 1)(self._narrow_job_handle)
+        environment_buffer = None
+        duplicated_handles: dict[int, int] = {}
+        inherited_array = None
+        try:
+            # Duplicate only explicit child stdio handles as inheritable handles.
+            # This avoids temporarily flipping inheritance on shared originals
+            # while another thread may create a process.
+            current_process = kernel32.GetCurrentProcess()
+            for original_handle in inherited_handles:
+                original_value = int(original_handle)
+                if original_value in duplicated_handles:
+                    continue
+                duplicate = wintypes.HANDLE()
+                if not kernel32.DuplicateHandle(
+                    current_process, wintypes.HANDLE(original_value),
+                    current_process, ctypes.byref(duplicate), 0, True, 0x00000002,
+                ):
+                    raise OSError(ctypes.get_last_error(), "Could not duplicate a child stdio handle")
+                duplicated_handles[original_value] = int(duplicate.value)
+            if inherited_handles:
+                inherited_array = (wintypes.HANDLE * len(inherited_handles))(
+                    *(duplicated_handles[int(value)] for value in inherited_handles)
+                )
+
+            if not kernel32.UpdateProcThreadAttribute(
+                attribute_pointer, 0, PROC_THREAD_ATTRIBUTE_JOB_LIST,
+                ctypes.cast(job_handles, ctypes.c_void_p), ctypes.sizeof(job_handles), None, None,
+            ):
+                raise OSError(ctypes.get_last_error(), "Could not add the Job List process attribute")
+            if inherited_array is not None:
+                if not kernel32.UpdateProcThreadAttribute(
+                    attribute_pointer, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+                    ctypes.cast(inherited_array, ctypes.c_void_p), ctypes.sizeof(inherited_array), None, None,
+                ):
+                    raise OSError(ctypes.get_last_error(), "Could not add the standard-handle inheritance attribute")
+
+            startup = _StartupInfoExW()
+            startup.StartupInfo.cb = ctypes.sizeof(_StartupInfoExW)
+            startup.StartupInfo.dwFlags = int(startupinfo.dwFlags)
+            startup.StartupInfo.wShowWindow = int(startupinfo.wShowWindow)
+            if use_std_handles:
+                startup.StartupInfo.hStdInput = duplicated_handles.get(int(p2cread), int(p2cread))
+                startup.StartupInfo.hStdOutput = duplicated_handles.get(int(c2pwrite), int(c2pwrite))
+                startup.StartupInfo.hStdError = duplicated_handles.get(int(errwrite), int(errwrite))
+            startup.lpAttributeList = attribute_pointer
+
+            if env is None:
+                environment_pointer = None
+            else:
+                environment_items: list[str] = []
+                for key, value in env.items():
+                    key_text, value_text = os.fsdecode(key), os.fsdecode(value)
+                    if not key_text or "=" in key_text[1:] or "\x00" in key_text or "\x00" in value_text:
+                        raise ValueError("Invalid Windows environment variable in child environment")
+                    environment_items.append(f"{key_text}={value_text}")
+                environment_text = "\x00".join(sorted(environment_items, key=str.casefold)) + "\x00\x00"
+                environment_buffer = ctypes.create_unicode_buffer(environment_text)
+                environment_pointer = ctypes.cast(environment_buffer, ctypes.c_void_p)
+
+            command_buffer = ctypes.create_unicode_buffer(command_line)
+            sys.audit("subprocess.Popen", executable, args, cwd, env)
+            created = kernel32.CreateProcessW(
+                executable,
+                command_buffer,
+                None,
+                None,
+                bool(inherited_handles),
+                int(creationflags) | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                environment_pointer,
+                cwd,
+                ctypes.cast(ctypes.byref(startup), ctypes.POINTER(_StartupInfoW)),
+                ctypes.byref(process_info),
+            )
+            if not created:
+                raise ctypes.WinError(ctypes.get_last_error())
+        finally:
+            kernel32.DeleteProcThreadAttributeList(attribute_pointer)
+            for duplicate_handle in duplicated_handles.values():
+                kernel32.CloseHandle(wintypes.HANDLE(duplicate_handle))
+            self._close_pipe_fds(p2cread, p2cwrite, c2pread, c2pwrite, errread, errwrite)
+
+        self._child_created = True
+        self._handle = subprocess.Handle(int(process_info.hProcess))
+        self.pid = int(process_info.dwProcessId)
+        kernel32.CloseHandle(process_info.hThread)
 
 
 def spawn_process_with_job(
@@ -244,28 +399,24 @@ def spawn_process_with_job(
     *args: Any,
     **kwargs: Any,
 ) -> tuple[subprocess.Popen[Any], WindowsJob | None]:
-    """Spawn a process; on Windows, assign it to a Job before allowing execution.
+    """Spawn a process; on Windows, make Job membership atomic at creation.
 
-    The function preserves subprocess.Popen's standard pipe, cwd, env, and
-    command handling. On Windows it adds CREATE_SUSPENDED, assigns the child,
-    then resumes exactly one primary thread. Any setup failure kills the child
-    and closes the Job; there is no unmanaged fallback.
+    POSIX keeps normal Popen behavior. Windows uses CreateProcessW with
+    PROC_THREAD_ATTRIBUTE_JOB_LIST and STARTUPINFOEXW. If the OS cannot create
+    the child in the Job, launch fails closed; there is no unmanaged fallback.
     """
     if os.name != "nt":
         return subprocess.Popen(command, *args, **kwargs), None
 
     job = WindowsJob.create()
-    process: subprocess.Popen[Any] | None = None
-    original_flags = int(kwargs.get("creationflags", 0))
-    kwargs["creationflags"] = original_flags | CREATE_SUSPENDED
     try:
-        process = subprocess.Popen(command, *args, **kwargs)
-        job.assign_suspended(process)
-        _resume_primary_thread(process.pid)
+        process = _AtomicJobPopen(
+            command, *args, narrow_job_handle=job.handle_value, **kwargs
+        )
         return process, job
-    except Exception:
-        # Closing the Job kills the child if assignment succeeded. If it did
-        # not, terminate the suspended direct child explicitly.
+    except BaseException:
+        # If CreateProcessW succeeded before a later Python setup error, closing
+        # the kill-on-close Job still tears down the child and descendants.
         try:
             job.terminate()
         except Exception:
@@ -274,10 +425,4 @@ def spawn_process_with_job(
             job.close()
         except Exception:
             pass
-        if process is not None and process.poll() is None:
-            try:
-                process.kill()
-                process.wait(timeout=5)
-            except (OSError, subprocess.TimeoutExpired):
-                pass
         raise
