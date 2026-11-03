@@ -26,7 +26,8 @@ Add this object at the top level:
     "memory": "2g",
     "cpus": "2",
     "pids_limit": 256,
-    "workspace_read_only": true
+    "workspace_read_only": true,
+    "dependency_caches": ["pip", "npm"]
   }
 }
 
@@ -53,6 +54,21 @@ from changing code or test files while it runs. The container receives a
 writable /tmp and HOME=/tmp for temporary data. If a specific build/test command
 must write into the task workspace, set workspace_read_only to false only after
 reviewing that command and its expected generated files.
+
+
+## Task-scoped dependency caches
+
+The optional `dependency_caches` list supports `pip`, `npm`, `pnpm`, and
+`yarn`. NARROW creates a separate private cache directory per task under its
+user cache (not under the repository or home-directory package-manager config)
+and mounts only the selected cache directories into the container. It passes
+the corresponding package-manager cache environment variable. No host
+`~/.npm`, `~/.cache/pip`, `~/.config`, or credential directory is mounted.
+
+Cache mounts are writable, so treat their contents as untrusted artifacts.
+They are per-task to avoid sharing a potentially poisoned cache across tasks.
+The configuration defaults to an empty list; enabling caches is explicit.
+The cache directories may be removed manually when the task is no longer needed.
 
 ## Important limits
 
