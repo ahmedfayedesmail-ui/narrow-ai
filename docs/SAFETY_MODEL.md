@@ -114,3 +114,14 @@ For untrusted code, use a disposable VM/container with restricted mounts, no hos
 5. Run `narrow finish --task <id>`. Any later edit makes previous check/acceptance evidence stale.
 
 This procedure is documented in [HUMAN_REVIEW.md](HUMAN_REVIEW.md). The command records the user's assertion; it cannot prove that a human genuinely inspected the diff. NARROW never merges or integrates the task automatically.
+
+
+## Experimental verification container profile (feature branch)
+
+An optional Docker/Podman wrapper is being developed for configured verification commands. When enabled, it uses a pre-existing local image, no container network, a read-only container root, a read-only task-workspace bind mount by default, a writable temporary filesystem, dropped Linux capabilities, no-new-privileges, and CPU/memory/PID limits. The image is not pulled automatically. The profile is opt-in and defaults to off for backward compatibility.
+
+The wrapper is applied to verification commands only. It does not wrap the AI provider process, Claude/Codex helpers, generic agent commands, or arbitrary `narrow run` commands. It therefore does not create the requested universal default isolated executor and is not a complete host boundary. Docker/Podman daemon and host kernel remain trusted.
+
+Project auto-discovery reads manifests and file names but never executes suggested test commands. Contract proposals from Ollama are sent only to the local loopback endpoint and may include a bounded selection of project source files. Proposals never create a task or approve paths automatically; a human must review and confirm them.
+
+External provider plugins are imported Python code from the user's environment. They are trusted extensions, not a security sandbox. The dashboard intentionally remains read-only until an authenticated mutation design has been reviewed. Windows inherited-handle crash lifetime and process containment are not claimed as validated by this branch.
