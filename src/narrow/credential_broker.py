@@ -169,7 +169,7 @@ def revoke_credential_lease(lease: CredentialLease) -> None:
     expected_name_prefix = f"{lease.provider}-"
     if (
         not lease.path.name.startswith(expected_name_prefix)
-        or not re.fullmatch(r"[0-9a-f]{32}\\.secret", lease.path.name[len(expected_name_prefix):])
+        or not re.fullmatch(r"[0-9a-f]{32}\.secret", lease.path.name[len(expected_name_prefix):])
         or not _TASK_ID.fullmatch(lease.task_id)
         or _validate_execution_id(lease.execution_id) != lease.execution_id
         or expected_root.name != "credentials"
@@ -188,3 +188,66 @@ def revoke_credential_lease(lease: CredentialLease) -> None:
         return
     except OSError as exc:
         raise NarrowError("Could not safely revoke the provider credential lease.") from exc
+
+
+def validate_credential_lease(lease: CredentialLease, *, now: float | None = None) -> Path:
+    """Validate lease expiry, path integrity, owner-only mode, and content digest."""
+    if not isinstance(lease, CredentialLease):
+        raise NarrowError("Invalid credential lease handle.")
+    current_time = time.time() if now is None else now
+    if not isinstance(current_time, (int, float)) or isinstance(current_time, bool):
+        raise NarrowError("Credential lease validation time is invalid.")
+    if current_time >= lease.expires_at:
+        try:
+            revoke_credential_lease(lease)
+        finally:
+            raise NarrowError("Provider credential lease has expired and was revoked.")
+    if (
+        lease.provider not in _PROVIDER_KEYS
+        or lease.environment_name not in _PROVIDER_KEYS[lease.provider]
+        or not _TASK_ID.fullmatch(lease.task_id)
+        or _validate_execution_id(lease.execution_id) != lease.execution_id
+        or lease.path.parent.name != "credentials"
+        or lease.path.parent.parent.name != lease.execution_id
+        or lease.path.parent.parent.parent.name != lease.task_id
+    ):
+        raise NarrowError("Credential lease metadata does not match a supported provider/task execution.")
+    try:
+        metadata = lease.path.lstat()
+        if (
+            stat.S_ISLNK(metadata.st_mode)
+            or not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_nlink != 1
+            or stat.S_IMODE(metadata.st_mode) != 0o400
+            or metadata.st_size <= 0
+            or metadata.st_size > _MAX_SECRET_BYTES
+        ):
+            raise NarrowError("Credential lease file is linked, oversized, or has unsafe permissions.")
+        descriptor = os.open(lease.path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                not stat.S_ISREG(opened.st_mode)
+                or opened.st_nlink != 1
+                or stat.S_IMODE(opened.st_mode) != 0o400
+                or opened.st_size != metadata.st_size
+            ):
+                raise NarrowError("Credential lease file changed while it was being validated.")
+            payload = bytearray()
+            while len(payload) <= _MAX_SECRET_BYTES:
+                chunk = os.read(descriptor, min(4096, _MAX_SECRET_BYTES + 1 - len(payload)))
+                if not chunk:
+                    break
+                payload.extend(chunk)
+            if len(payload) != opened.st_size:
+                raise NarrowError("Credential lease file changed or exceeded its read limit.")
+        finally:
+            os.close(descriptor)
+    except NarrowError:
+        raise
+    except OSError as exc:
+        raise NarrowError("Could not safely validate provider credential lease.") from exc
+    actual = hashlib.sha256(payload).hexdigest()
+    if not __import__("hmac").compare_digest(actual, lease.sha256):
+        raise NarrowError("Credential lease content does not match the issued digest.")
+    return lease.path
