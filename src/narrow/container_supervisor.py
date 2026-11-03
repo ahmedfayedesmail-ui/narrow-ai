@@ -13,6 +13,7 @@ from typing import Any, Callable
 from .container_lifecycle import agent_container_labels, cleanup_execution_agent_containers
 from .core import NarrowError
 from .policy_manifest import _validate_execution_id
+from .agent_runtime import normalize_provider_argv, validate_agent_image
 
 _TASK_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
@@ -98,6 +99,8 @@ def run_container_agent(
         raise NarrowError("Docker supervisor argv contains an invalid argument.")
     if any(value == "--cidfile" for value in command):
         raise NarrowError("Docker cidfile is managed by NARROW and must not be supplied by callers.")
+    if not isinstance(task_id, str) or not _TASK_ID.fullmatch(task_id):
+        raise NarrowError("Invalid task ID for Docker supervisor.")
     expected_execution = _validate_execution_id(execution_id)
     expected_network = f"narrow-agent-{task_id[:32]}-{expected_execution.replace('-', '')[:12]}"
     if "--network" not in command or command[command.index("--network") + 1:command.index("--network") + 2] != [expected_network]:
@@ -112,6 +115,64 @@ def run_container_agent(
         raise NarrowError("Docker agent command must drop every Linux capability.")
     if "--security-opt" not in command or command[command.index("--security-opt") + 1:command.index("--security-opt") + 2] != ["no-new-privileges:true"]:
         raise NarrowError("Docker agent command must enable no-new-privileges.")
+
+    if any(value in command for value in ("--privileged", "--volume", "-v", "--volumes-from", "--device", "--cap-add", "--env-file", "--pid", "--ipc", "--uts")):
+        raise NarrowError("Docker agent command contains a forbidden host-access or privilege option.")
+    mount_values = [
+        command[index + 1]
+        for index, value in enumerate(command[:-1])
+        if value == "--mount"
+    ]
+    mount_targets: dict[str, tuple[str, bool]] = {}
+    for mount in mount_values:
+        fields = dict(
+            item.split("=", 1) for item in mount.split(",")
+            if "=" in item
+        )
+        target = fields.get("target")
+        source = fields.get("source")
+        readonly = "readonly" in mount.split(",") or "ro" in mount.split(",")
+        if fields.get("type") != "bind" or not target or not source or not source.startswith("/"):
+            raise NarrowError("Docker agent bind mounts must use absolute host sources and explicit bind targets.")
+        if target in mount_targets:
+            raise NarrowError("Docker agent command repeats a bind mount target.")
+        mount_targets[target] = (source, readonly)
+    expected_mount_modes = {
+        "/workspace": False,
+        "/home/narrow": False,
+        "/run/narrow/policy.json": True,
+        "/run/secrets/provider-api-key": True,
+    }
+    if set(mount_targets) != set(expected_mount_modes):
+        raise NarrowError("Docker agent must mount only its workspace, task home, policy manifest, and provider credential.")
+    for target, readonly in expected_mount_modes.items():
+        if mount_targets[target][1] is not readonly:
+            raise NarrowError("Docker policy and credential mounts must be read-only; workspace and task home must be writable.")
+    allowed_env = {
+        "HOME", "PATH", "LANG", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy",
+        "NO_PROXY", "no_proxy", "NARROW_POLICY_MANIFEST", "NARROW_TASK_ID",
+        "NARROW_EXECUTION_ID", "NARROW_CONTAINER_EVENT_SPOOL",
+    }
+    env_names = [
+        item.split("=", 1)[0]
+        for index, value in enumerate(command[:-1])
+        if value == "--env"
+        for item in [command[index + 1]]
+    ]
+    if any(name not in allowed_env for name in env_names) or len(env_names) != len(set(env_names)):
+        raise NarrowError("Docker agent environment contains an unapproved or duplicate variable.")
+    if "--entrypoint" not in command or command[command.index("--entrypoint") + 1:command.index("--entrypoint") + 2] != ["python"]:
+        raise NarrowError("Docker agent must start through the NARROW in-container entrypoint.")
+    entrypoint_index = command.index("--entrypoint")
+    if entrypoint_index + 10 >= len(command):
+        raise NarrowError("Docker agent image or in-container entrypoint arguments are incomplete.")
+    validate_agent_image(command[entrypoint_index + 2])
+    if command[entrypoint_index + 3:entrypoint_index + 10] != [
+        "-m", "narrow.agent_entrypoint", "--provider", "codex",
+        "--credential-file", "/run/secrets/provider-api-key", "--",
+    ]:
+        raise NarrowError("Docker agent must invoke the constrained Codex credential entrypoint.")
+    normalize_provider_argv("codex", command[entrypoint_index + 10:])
     if not isinstance(stdin_text, str) or "\x00" in stdin_text:
         raise NarrowError("Docker agent prompt must be text without NUL characters.")
     if not isinstance(timeout_seconds, int) or isinstance(timeout_seconds, bool) or not 1 <= timeout_seconds <= 24 * 60 * 60:
