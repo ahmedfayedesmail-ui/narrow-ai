@@ -284,10 +284,13 @@ sidecar, then remove the sidecar-only uplink, and finally remove the internal
 agent network. The internal network cleanup refuses to proceed while either
 an agent or proxy container remains. Crash recovery follows the same order.
 
-This is lifecycle ownership and cleanup groundwork only. It does not yet
-create or attach the proxy sidecar, prove Docker's selected default route,
-probe proxy readiness, or enforce that the agent cannot bypass the proxy.
-The normal drive workflow remains unchanged.
+The initial PR work established resource ownership and teardown primitives.
+The follow-on implementation now provisions and inspects the dual-homed proxy
+sidecar, assigns the uplink a higher Docker gateway priority, verifies the
+proxy's actual IPv4 default route, and fails closed in the agent entrypoint if
+an IPv4 or IPv6 default route appears. The opt-in Codex container path is wired
+into the normal bounded drive loop behind an explicit CLI flag; native provider
+execution remains unchanged by default.
 ## Opt-in Codex `drive` integration and proxy sidecar
 
 The POSIX/local-Docker Codex path is now wired behind the explicit
@@ -319,9 +322,9 @@ execution recovery follows the same exact-identity cleanup order.
 - The agent image and proxy image must be built, digest-pinned, and tested
   against the actual Codex CLI/account configuration. NARROW deliberately
   does not ship or silently pull a mutable image.
-- Docker-hosted end-to-end tests must prove denied destinations fail,
-  allowlisted provider requests work, and attempts to bypass HTTP(S)_PROXY
-  cannot reach public destinations from the agent's internal network.
+- The Docker-hosted E2E acceptance job must pass on the exact PR head, proving
+  denied destinations fail, allowlisted provider requests work, and direct
+  public TCP from the agent's internal-only network has no default route.
 - The host bridge remains a trusted boundary: do not treat the topology as a
   microVM, do not run it against an untrusted Docker daemon, and do not assume
   host services bound to bridge interfaces are unreachable.
@@ -333,5 +336,8 @@ execution recovery follows the same exact-identity cleanup order.
 - Authenticated Codex E2E, platform fault-injection, and independent security
   review remain required before announcing Beta.
 
-Until these checks have real results, this is an opt-in experimental execution
-profile and the published package remains Alpha.
+A real-Docker integration test and CI job are now present, but this document
+must not be read as a passing test report: the job still needs to complete
+successfully on the exact PR head, and no authenticated Codex session has yet
+been demonstrated. Until those results exist, the profile is experimental and
+the published package remains Alpha.
