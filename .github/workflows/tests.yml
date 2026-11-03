@@ -1,4 +1,4 @@
-name: NARROW source tests
+name: NARROW v0.5.0 alpha checks
 
 on:
   push:
@@ -10,7 +10,7 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -20,12 +20,26 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Compile
+      - name: Validate release archive
+        run: gzip -t narrow-v0.5.0.tar.gz && tar -tzf narrow-v0.5.0.tar.gz >/dev/null
+      - name: Compile checked-in source
         run: python -m compileall -q src tests
-      - name: Unit tests
+      - name: Test checked-in source
         env:
           PYTHONPATH: src
         run: python -W error::ResourceWarning -m unittest discover -s tests -q
+      - name: Extract release archive
+        run: |
+          mkdir -p "$RUNNER_TEMP/narrow-release"
+          tar -xzf narrow-v0.5.0.tar.gz -C "$RUNNER_TEMP/narrow-release"
+          test -f "$RUNNER_TEMP/narrow-release/NARROW/src/narrow/locks.py"
+      - name: Test extracted package
+        working-directory: ${{ runner.temp }}/narrow-release/NARROW
+        env:
+          PYTHONPATH: src
+        run: |
+          python -m compileall -q src tests
+          python -W error::ResourceWarning -m unittest discover -s tests -q
       - name: CLI smoke tests
         env:
           PYTHONPATH: src
