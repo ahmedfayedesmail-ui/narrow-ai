@@ -47,7 +47,6 @@ class EgressProxyRuntime:
 
     container_id: str
     container_name: str
-    token: str
     token_path: Path
     agent_network: AgentNetwork
     uplink_network: AgentNetwork
@@ -80,7 +79,7 @@ def _execution_root(store: Store, task_id: str, execution_id: str) -> Path:
     return root
 
 
-def _token_file(root: Path) -> tuple[str, Path]:
+def _token_file(root: Path) -> Path:
     token = secrets.token_urlsafe(48)
     if len(token) < 32 or len(token) > 128:
         raise NarrowError("Generated egress capability token has an unexpected length.")
@@ -111,7 +110,7 @@ def _token_file(root: Path) -> tuple[str, Path]:
     finally:
         if descriptor >= 0:
             os.close(descriptor)
-    return token, path
+    return path
 
 
 def remove_execution_proxy_token_file(store: Store, task_id: str, execution_id: str) -> bool:
@@ -334,7 +333,7 @@ def provision_execution_egress_proxy(
     root = _execution_root(store, task_id, execution_id)
     if list_execution_egress_proxy_containers("docker", task_id, execution_id):
         raise NarrowError("An egress proxy sidecar already exists for this execution; refusing to replace it.")
-    token, token_path = _token_file(root)
+    token_path = _token_file(root)
     container_name = f"narrow-egress-proxy-{task_id[:20]}-{_validate_execution_id(execution_id).replace('-', '')[:12]}"
     created_id = ""
     try:
@@ -425,7 +424,6 @@ def provision_execution_egress_proxy(
         return EgressProxyRuntime(
             container_id=created_id,
             container_name=container_name,
-            token=token,
             token_path=token_path,
             agent_network=agent_network,
             uplink_network=uplink_network,
