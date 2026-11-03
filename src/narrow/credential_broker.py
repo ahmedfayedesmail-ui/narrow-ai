@@ -35,6 +35,7 @@ class CredentialLease:
     """Opaque reference to one short-lived provider credential file."""
 
     path: Path
+    state_dir: Path
     provider: str
     environment_name: str
     task_id: str
@@ -152,6 +153,7 @@ def issue_credential_lease(
 
     return CredentialLease(
         path=destination,
+        state_dir=store.state_dir,
         provider=provider,
         environment_name=env_name,
         task_id=task_id,
@@ -167,27 +169,45 @@ def revoke_credential_lease(lease: CredentialLease) -> None:
         raise NarrowError("Invalid credential lease handle.")
     if os.name == "nt":
         raise NarrowError("Credential file lease revocation is disabled on Windows.")
-    expected_root = Path(lease.path).parent
-    expected_name_prefix = f"{lease.provider}-"
     if (
-        not lease.path.name.startswith(expected_name_prefix)
-        or not re.fullmatch(r"[0-9a-f]{32}\.secret", lease.path.name[len(expected_name_prefix):])
+        not isinstance(lease.state_dir, Path)
+        or lease.state_dir.name != ".narrow"
+        or not isinstance(lease.path, Path)
+        or lease.provider not in _PROVIDER_KEYS
         or not _TASK_ID.fullmatch(lease.task_id)
         or _validate_execution_id(lease.execution_id) != lease.execution_id
-        or expected_root.name != "credentials"
-        or expected_root.parent.name != lease.execution_id
-        or expected_root.parent.parent.name != lease.task_id
+    ):
+        raise NarrowError("Credential lease identity or NARROW state root is invalid.")
+    prefix = f"{lease.provider}-"
+    expected_root = lease.state_dir / "runtime" / "agent" / lease.task_id / lease.execution_id / "credentials"
+    if (
+        lease.path.absolute() != (expected_root / lease.path.name).absolute()
+        or not lease.path.name.startswith(prefix)
+        or not re.fullmatch(r"[0-9a-f]{32}\.secret", lease.path.name[len(prefix):])
     ):
         raise NarrowError("Credential lease path does not match its task/execution identity.")
     try:
+        for directory in (
+            lease.state_dir,
+            lease.state_dir / "runtime",
+            lease.state_dir / "runtime" / "agent",
+            lease.state_dir / "runtime" / "agent" / lease.task_id,
+            lease.state_dir / "runtime" / "agent" / lease.task_id / lease.execution_id,
+            expected_root,
+        ):
+            info = directory.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                raise NarrowError("Credential lease directory chain contains a link or non-directory.")
         metadata = lease.path.lstat()
         if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
             raise NarrowError("Refusing to revoke a linked or non-regular credential path.")
-        if os.stat(lease.path).st_size > _MAX_SECRET_BYTES:
+        if metadata.st_size > _MAX_SECRET_BYTES:
             raise NarrowError("Credential lease file exceeds the safety limit.")
         lease.path.unlink()
     except FileNotFoundError:
         return
+    except NarrowError:
+        raise
     except OSError as exc:
         raise NarrowError("Could not safely revoke the provider credential lease.") from exc
 
@@ -213,14 +233,29 @@ def validate_credential_lease(lease: CredentialLease, *, now: float | None = Non
         or lease.environment_name not in _PROVIDER_KEYS[lease.provider]
         or not _TASK_ID.fullmatch(lease.task_id)
         or _validate_execution_id(lease.execution_id) != lease.execution_id
+        or not isinstance(lease.state_dir, Path)
+        or lease.state_dir.name != ".narrow"
+        or not isinstance(lease.path, Path)
+        or lease.path.absolute() != (
+            lease.state_dir / "runtime" / "agent" / lease.task_id
+            / lease.execution_id / "credentials" / lease.path.name
+        ).absolute()
         or not lease.path.name.startswith(f"{lease.provider}-")
         or not re.fullmatch(r"[0-9a-f]{32}\.secret", lease.path.name[len(lease.provider) + 1:])
-        or lease.path.parent.name != "credentials"
-        or lease.path.parent.parent.name != lease.execution_id
-        or lease.path.parent.parent.parent.name != lease.task_id
     ):
         raise NarrowError("Credential lease metadata does not match a supported provider/task execution.")
     try:
+        for directory in (
+            lease.state_dir,
+            lease.state_dir / "runtime",
+            lease.state_dir / "runtime" / "agent",
+            lease.state_dir / "runtime" / "agent" / lease.task_id,
+            lease.state_dir / "runtime" / "agent" / lease.task_id / lease.execution_id,
+            lease.state_dir / "runtime" / "agent" / lease.task_id / lease.execution_id / "credentials",
+        ):
+            info = directory.lstat()
+            if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+                raise NarrowError("Credential lease directory chain contains a link or non-directory.")
         metadata = lease.path.lstat()
         if (
             stat.S_ISLNK(metadata.st_mode)
