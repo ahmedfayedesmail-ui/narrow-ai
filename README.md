@@ -49,7 +49,7 @@ python -m pip install .
 narrow --version
 ```
 
-The **v0.5.0 Alpha GitHub prerelease is published** with the `v0.5.0` tag. It is currently distributed as source; there is no PyPI package yet. For a reproducible install, check out the release tag explicitly:
+The **v0.5.0 Alpha GitHub prerelease is published** with the `v0.5.0` tag. It is currently distributed as source; PyPI publication is prepared but not enabled until the package owner's Trusted Publisher setup and a TestPyPI smoke test are complete. See [the Python publishing guide](docs/PUBLISHING.md). For a reproducible install, check out the release tag explicitly:
 
 ```bash
 git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
