@@ -45,6 +45,10 @@ class CliTests(unittest.TestCase):
         ])
         self.assertEqual(args.allow, ["src/**", "tests/**"])
         self.assertEqual(args.accept, ["One", "Two"])
+        proposed = parser.parse_args(["start", "--goal", "Fix login timeout", "--auto-contract", "--ollama"])
+        self.assertTrue(proposed.auto_contract)
+        self.assertTrue(proposed.ollama)
+        self.assertIsNone(proposed.title)
 
 
 if __name__ == "__main__":
