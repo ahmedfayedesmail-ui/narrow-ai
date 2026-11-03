@@ -192,6 +192,35 @@ class WindowsJob:
             pass
 
 
+def _verify_job_membership_and_resume(
+    kernel32: Any, process_handle: Any, thread_handle: Any, job_handle: Any
+) -> None:
+    """Verify atomic Job membership while the initial thread is still suspended."""
+    kernel32.IsProcessInJob.argtypes = [
+        wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)
+    ]
+    kernel32.IsProcessInJob.restype = wintypes.BOOL
+    kernel32.ResumeThread.argtypes = [wintypes.HANDLE]
+    kernel32.ResumeThread.restype = wintypes.DWORD
+
+    is_member = wintypes.BOOL()
+    if not kernel32.IsProcessInJob(
+        process_handle, job_handle, ctypes.byref(is_member)
+    ):
+        raise OSError(ctypes.get_last_error(), "IsProcessInJob failed for the new child")
+    if not is_member.value:
+        raise NarrowError("CreateProcessW returned a child that is not in its required Job Object.")
+
+    previous_suspend_count = int(kernel32.ResumeThread(thread_handle))
+    if previous_suspend_count == 0xFFFFFFFF:
+        raise OSError(ctypes.get_last_error(), "ResumeThread failed for the Job-supervised child")
+    if previous_suspend_count != 1:
+        raise NarrowError(
+            "The new child's initial thread did not have the expected single suspend count; "
+            "the Job will be terminated rather than resuming an ambiguous process."
+        )
+
+
 class _AtomicJobPopen(subprocess.Popen[Any]):
     """Popen-compatible launcher that puts the child in a Job at creation.
 
@@ -397,7 +426,7 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
                 None,
                 None,
                 bool(inherited_handles),
-                int(creationflags) | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+                int(creationflags) | EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
                 environment_pointer,
                 cwd,
                 ctypes.cast(ctypes.byref(startup), ctypes.POINTER(_StartupInfoW)),
@@ -405,16 +434,32 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
             )
             if not created:
                 raise ctypes.WinError(ctypes.get_last_error())
+
+            # The process is already a Job member because JOB_LIST was supplied
+            # to CreateProcessW. Keep its primary thread suspended until the
+            # kernel confirms membership. If this supervisor dies before resume,
+            # closing its non-inheritable Job handle still kills this process.
+            _verify_job_membership_and_resume(
+                kernel32, process_info.hProcess, process_info.hThread,
+                wintypes.HANDLE(self._narrow_job_handle),
+            )
+            self._handle = subprocess.Handle(int(process_info.hProcess))
+            self.pid = int(process_info.dwProcessId)
+            self._child_created = True
+            process_info.hProcess = None  # ownership transferred to Popen
         finally:
             kernel32.DeleteProcThreadAttributeList(attribute_pointer)
             for duplicate_handle in duplicated_handles.values():
                 kernel32.CloseHandle(wintypes.HANDLE(duplicate_handle))
             self._close_pipe_fds(p2cread, p2cwrite, c2pread, c2pwrite, errread, errwrite)
-
-        self._child_created = True
-        self._handle = subprocess.Handle(int(process_info.hProcess))
-        self.pid = int(process_info.dwProcessId)
-        kernel32.CloseHandle(process_info.hThread)
+            if process_info.hThread:
+                kernel32.CloseHandle(process_info.hThread)
+                process_info.hThread = None
+            if process_info.hProcess:
+                # Covers failures after CreateProcessW but before Popen adopts
+                # the handle. The outer launcher closes the Job, killing child.
+                kernel32.CloseHandle(process_info.hProcess)
+                process_info.hProcess = None
 
 
 def spawn_process_with_job(
