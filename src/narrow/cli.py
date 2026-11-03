@@ -398,6 +398,9 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     store = _store_obj or _store()
     task = _task or store.get_task(args.task)
     config = load_config(store.root)
+    sandbox_config = config.get("verification_sandbox", {"mode": "off"})
+    if not isinstance(sandbox_config, dict):
+        raise NarrowError("verification_sandbox must be a JSON object in .narrow/config.json.")
     checks = config.get("checks", {})
     if args.check not in checks:
         available = ", ".join(checks) or "(none configured)"
@@ -428,7 +431,7 @@ def cmd_verify(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj
     verify_env["PYTHONDONTWRITEBYTECODE"] = "1"
     exit_code, output = run_verification_command(
         command, cwd=workspace, env=verify_env, timeout=timeout, _lock_fd=_lock_fd,
-        sandbox=config.get("verification_sandbox", {"mode": "off"}),
+        sandbox=sandbox_config,
     )
     duration = int((time.monotonic() - started) * 1000)
     after = snapshot_hash(workspace)
