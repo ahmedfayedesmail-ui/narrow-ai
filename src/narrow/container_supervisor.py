@@ -102,6 +102,8 @@ def _run_container_agent(
         raise NarrowError("Docker supervisor argv contains an invalid argument.")
     if any(value == "--cidfile" for value in command):
         raise NarrowError("Docker cidfile is managed by NARROW and must not be supplied by callers.")
+    if any(value in command for value in ("-v", "--volume", "--volumes-from", "--device", "--cap-add", "--env-file", "--privileged")):
+        raise NarrowError("Docker agent command contains a forbidden host-access or privilege option.")
     flag_without_value = {"--rm", "--init", "--interactive", "--read-only"}
     flag_with_value = {
         "--name", "--network", "--workdir", "--user", "--cap-drop",
