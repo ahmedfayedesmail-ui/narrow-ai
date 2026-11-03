@@ -101,6 +101,8 @@ def run_verification_command(
     output_limit: int = 64 * 1024,
     _lock_fd: int | None = None,
     sandbox: dict[str, Any] | None = None,
+    sandbox_cache_root: Path | None = None,
+    sandbox_cache_scope: str | None = None,
 ) -> tuple[int, str]:
     """Run a configured check with bounded retained output and best-effort tree cleanup.
 
@@ -119,7 +121,10 @@ def run_verification_command(
         if key.startswith("GIT_"):
             check_env.pop(key, None)
     check_env.update({"GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": os.devnull, "GIT_TERMINAL_PROMPT": "0"})
-    sandbox_plan = prepare_sandbox_command(command, cwd, sandbox or {"mode": "off"})
+    sandbox_plan = prepare_sandbox_command(
+        command, cwd, sandbox or {"mode": "off"},
+        cache_root=sandbox_cache_root, cache_scope=sandbox_cache_scope,
+    )
     execution_command = sandbox_plan.command if sandbox_plan else command
     try:
         with inherited_lock_options(_lock_fd) as lock_options:
