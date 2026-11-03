@@ -1,3 +1,17 @@
+## Post-0.5.0 readiness hardening (unreleased)
+
+### Added
+- A reproducible local end-to-end demo for a bounded fail-then-repair/handoff flow and a bounded failure flow. It uses a deterministic fake agent and leaves final acceptance to a human.
+- A dedicated human-review procedure covering tracked diffs, untracked files, snapshot-bound verification, criterion evidence, and the final finish gate.
+- A v0.5.0 threat model that distinguishes native Claude, native Codex, generic adapters, direct command wrappers, verification programs, and the local dashboard.
+
+### Fixed
+- The Control Center's Ready for Review counter and status badge now use the actual persisted `READY_FOR_REVIEW` state. The previous dashboard counter compared against a different event-like label and could show zero when a task was ready for a human.
+
+### Validation work
+- CI now includes macOS full-suite and demo jobs, Windows demo workflows, and clean wheel/source-distribution build and wheel-install checks. Results are recorded in the QA document after the workflow completes.
+- Documentation now explicitly states that generic adapters/direct `run`/`resume` commands do not gain an OS sandbox from NARROW and that verification commands retain the invoking user's permissions.
+
 ## 0.5.0 — 2026-11-03 (Alpha)
 
 ### Added
