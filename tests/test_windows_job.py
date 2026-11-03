@@ -92,10 +92,15 @@ class WindowsJobTests(unittest.TestCase):
             )
             try:
                 deadline = time.monotonic() + 5
-                while not grandchild_pid_file.exists() and time.monotonic() < deadline:
+                grandchild_pid_text = ""
+                while time.monotonic() < deadline:
+                    if grandchild_pid_file.exists():
+                        grandchild_pid_text = grandchild_pid_file.read_text(encoding="ascii").strip()
+                        if grandchild_pid_text:
+                            break
                     time.sleep(0.02)
-                self.assertTrue(grandchild_pid_file.exists(), "The child did not report its grandchild PID.")
-                grandchild_pid = int(grandchild_pid_file.read_text(encoding="ascii"))
+                self.assertTrue(grandchild_pid_text, "The child did not report its grandchild PID.")
+                grandchild_pid = int(grandchild_pid_text)
                 self.assertIsNotNone(job)
                 job.close()
                 self.assertIsNotNone(parent.wait(timeout=5))
@@ -149,8 +154,8 @@ class WindowsJobTests(unittest.TestCase):
                     time.sleep(0.025)
                 self.assertTrue(child_pid_file.exists(), "The helper did not report the Job child PID.")
                 self.assertTrue(grandchild_pid_file.exists(), "The Job child did not report its grandchild PID.")
-                child_pid = int(child_pid_file.read_text(encoding="ascii"))
-                grandchild_pid = int(grandchild_pid_file.read_text(encoding="ascii"))
+                child_pid = int(child_pid_file.read_text(encoding="ascii").strip())
+                grandchild_pid = int(grandchild_pid_file.read_text(encoding="ascii").strip())
 
                 # Deliberately omit /T: only the process holding the Job handle
                 # is killed. KILL_ON_JOB_CLOSE must tear down both descendants.
@@ -195,6 +200,13 @@ class NonWindowsJobCompatibilityTests(unittest.TestCase):
         self.assertIn("narrow-child-ok", stdout)
 
 
+def _handle_value(handle: object) -> int:
+    value = getattr(handle, "value", handle)
+    if isinstance(value, bytes):
+        return int.from_bytes(value, byteorder=sys.byteorder, signed=False)
+    return int(value)
+
+
 def _windows_handles_in_job(process_handle: int, job_handle: int) -> bool:
     import ctypes
     from ctypes import wintypes
@@ -206,8 +218,8 @@ def _windows_handles_in_job(process_handle: int, job_handle: int) -> bool:
     kernel32.IsProcessInJob.restype = wintypes.BOOL
     member = wintypes.BOOL()
     if not kernel32.IsProcessInJob(
-        wintypes.HANDLE(int(process_handle)),
-        wintypes.HANDLE(int(job_handle)),
+        wintypes.HANDLE(_handle_value(process_handle)),
+        wintypes.HANDLE(_handle_value(job_handle)),
         ctypes.byref(member),
     ):
         raise ctypes.WinError(ctypes.get_last_error())
@@ -225,8 +237,8 @@ def _windows_process_in_job(process: subprocess.Popen[bytes], job_handle: int) -
     kernel32.IsProcessInJob.restype = wintypes.BOOL
     member = wintypes.BOOL()
     if not kernel32.IsProcessInJob(
-        wintypes.HANDLE(int(process._handle)),
-        wintypes.HANDLE(job_handle),
+        wintypes.HANDLE(_handle_value(process._handle)),
+        wintypes.HANDLE(_handle_value(job_handle)),
         ctypes.byref(member),
     ):
         raise ctypes.WinError(ctypes.get_last_error())
