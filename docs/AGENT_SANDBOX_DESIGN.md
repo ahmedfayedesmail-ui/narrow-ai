@@ -271,3 +271,20 @@ internal network, start a separately controlled proxy sidecar with the same
 per-execution capability, confirm the proxy is the only path to external
 network access, and then pass this argv to the host supervisor. The builder
 does not start containers or prove that the proxy sidecar exists.
+## Egress sidecar resource ownership and teardown
+
+The lifecycle layer now distinguishes the agent container from its dedicated
+egress-proxy sidecar by separate execution ownership labels. It can enumerate
+and remove only sidecars whose NARROW managed/task/execution/schema labels
+match the selected execution. A separate non-internal bridge is represented
+as the egress uplink network; it has its own labels and exact-name checks.
+
+Teardown is ordered: stop/remove the agent first, then remove the proxy
+sidecar, then remove the sidecar-only uplink, and finally remove the internal
+agent network. The internal network cleanup refuses to proceed while either
+an agent or proxy container remains. Crash recovery follows the same order.
+
+This is lifecycle ownership and cleanup groundwork only. It does not yet
+create or attach the proxy sidecar, prove Docker's selected default route,
+probe proxy readiness, or enforce that the agent cannot bypass the proxy.
+The normal drive workflow remains unchanged.
