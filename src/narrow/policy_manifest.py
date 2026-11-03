@@ -232,7 +232,10 @@ def write_policy_manifest(
         os.replace(temporary, destination)
         temporary = None
         if os.name != "nt":
-            os.chmod(destination, stat.S_IRUSR)
+            # The file contains policy only, no credentials. World-readable
+            # mode lets a non-root container UID read the single-file bind
+            # mount; its parent remains private and the launcher mounts it RO.
+            os.chmod(destination, stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
         return PolicyManifestFile(destination, task_id, execution, digest)
     except NarrowError:
         raise
@@ -286,8 +289,27 @@ def read_policy_manifest(
     actual = hashlib.sha256(_canonical_json(manifest)).hexdigest()
     if not hmac.compare_digest(actual, digest):
         raise NarrowError("Policy manifest checksum mismatch; refusing to use corrupted policy.")
+    expected_manifest_keys = {
+        "schema", "schema_version", "generated_at", "task_id", "execution_id",
+        "workspace_root", "task", "scope", "acceptance_criteria", "controls",
+    }
+    if set(manifest) != expected_manifest_keys:
+        raise NarrowError("Policy manifest contains missing or unsupported fields.")
     if manifest.get("schema") != _SCHEMA or manifest.get("schema_version") != 1:
         raise NarrowError("Policy manifest schema is unsupported.")
+    generated_at = manifest.get("generated_at")
+    if not isinstance(generated_at, str) or len(generated_at) > 64:
+        raise NarrowError("Policy manifest generation timestamp is invalid.")
+    task_data = manifest.get("task")
+    if (
+        not isinstance(task_data, dict)
+        or set(task_data) != {"title", "goal"}
+        or not isinstance(task_data.get("title"), str)
+        or len(task_data["title"]) > 500
+        or not isinstance(task_data.get("goal"), str)
+        or len(task_data["goal"]) > 8000
+    ):
+        raise NarrowError("Policy manifest task context is malformed.")
     task_id = manifest.get("task_id")
     execution_id = manifest.get("execution_id")
     if not isinstance(task_id, str) or not _TASK_ID.fullmatch(task_id):
@@ -301,8 +323,38 @@ def read_policy_manifest(
         raise NarrowError("Policy manifest belongs to a different execution.")
     # Re-validate the core policy collections when reading untrusted bytes.
     scope = manifest.get("scope")
-    if not isinstance(scope, dict):
+    expected_scope_keys = {
+        "allowed_paths", "denied_paths", "reserved_paths",
+        "deny_path_traversal", "deny_symlinks_and_hardlinks",
+    }
+    if not isinstance(scope, dict) or set(scope) != expected_scope_keys:
         raise NarrowError("Policy manifest scope is malformed.")
     _validate_patterns(scope.get("allowed_paths"), "allowed_paths")
     _validate_patterns(scope.get("denied_paths"), "denied_paths", allow_empty=True)
+    if scope.get("reserved_paths") != _RESERVED_PATHS:
+        raise NarrowError("Policy manifest reserved paths are invalid.")
+    if scope.get("deny_path_traversal") is not True or scope.get("deny_symlinks_and_hardlinks") is not True:
+        raise NarrowError("Policy manifest path safety controls are disabled.")
+    criteria = manifest.get("acceptance_criteria")
+    if not isinstance(criteria, list) or not 1 <= len(criteria) <= 100:
+        raise NarrowError("Policy manifest acceptance criteria are malformed.")
+    for item in criteria:
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"text", "accepted"}
+            or not isinstance(item.get("text"), str)
+            or not item["text"].strip()
+            or len(item["text"]) > 2000
+            or not isinstance(item.get("accepted"), bool)
+        ):
+            raise NarrowError("Policy manifest contains an invalid acceptance criterion.")
+    controls = manifest.get("controls")
+    expected_controls = {
+        "write_scope_required": True,
+        "stop_on_scope_violation": True,
+        "human_acceptance_required": True,
+        "host_supervisor_is_authoritative": True,
+    }
+    if controls != expected_controls:
+        raise NarrowError("Policy manifest safety controls are missing or weakened.")
     return manifest
