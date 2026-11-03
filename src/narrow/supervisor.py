@@ -14,6 +14,7 @@ from typing import Any, Callable
 
 from .locks import inherited_lock_options, task_execution_lock
 from .sandbox import cleanup_container, prepare_sandbox_command
+from .windows_job import assign_process_to_job
 
 from .core import (
     NarrowError,
@@ -139,6 +140,8 @@ def run_verification_command(
     except OSError as exc:
         raise NarrowError(f"Could not start verification check {command[0]}: {exc}") from exc
 
+    process_job = assign_process_to_job(process)
+
     captured = bytearray()
     capture_lock = threading.Lock()
 
@@ -194,6 +197,8 @@ def run_verification_command(
                 process.stdout.close()
             except OSError:
                 pass
+        if process_job is not None:
+            process_job.close()
 
     with capture_lock:
         output = bytes(captured).decode("utf-8", errors="replace")
@@ -376,6 +381,8 @@ def run_agent(
     except OSError as exc:
         raise NarrowError(f"Could not start agent: {exc}") from exc
 
+    process_job = assign_process_to_job(process)
+
     callback_errors: list[str] = []
 
     if stdin_bytes is not None:
@@ -524,6 +531,8 @@ def run_agent(
             process.stdout.close()
         store.add_event(task_id, "AGENT_RUN_INTERRUPTED", {"reason": "User interrupted the supervised run."})
         store.update_status(task_id, "NEEDS_REVIEW")
+        if process_job is not None:
+            process_job.close()
         print("\nNARROW stopped the agent and preserved the isolated worktree and task journal.")
         return 130
 
@@ -540,6 +549,8 @@ def run_agent(
                 pass
         store.add_event(task_id, "AGENT_RUN_STOPPED", {"reason": stop_reason, "changed_paths": last_paths})
         store.update_status(task_id, "NEEDS_REVIEW")
+        if process_job is not None:
+            process_job.close()
         print(f"\nNARROW stopped the agent: {stop_reason}")
         return 125
 
@@ -553,6 +564,8 @@ def run_agent(
             process.stdout.close()
         except OSError:
             pass
+    if process_job is not None:
+        process_job.close()
     if callback_errors:
         store.update_status(task_id, "NEEDS_REVIEW")
         store.add_event(task_id, "AGENT_OUTPUT_CAPTURE_FAILED", {"reason": callback_errors[0]})
