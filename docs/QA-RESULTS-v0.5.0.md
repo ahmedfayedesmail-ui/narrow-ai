@@ -1,7 +1,8 @@
 # NARROW v0.5.0 Alpha — QA Status
 
 Date: 2026-11-03
-Validated main snapshot: `7f52ee9387fe1c254d8e7695e916cfece2effeb3`
+Release tag snapshot (`v0.5.0`): `5eb6a469c5c0317e2b9528dc2dcbfafd0fae5228`
+Current main snapshot: `2d01a35ab43aef5775b80790fefb830abe59305e` (documentation-only follow-up)
 
 ## Regression coverage
 
@@ -16,13 +17,14 @@ Validated main snapshot: `7f52ee9387fe1c254d8e7695e916cfece2effeb3`
 
 ## CI evidence
 
-The validated snapshot passed all 7 GitHub Actions jobs in run [#41644644961](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41644644961):
+The published release-tag commit passed all eight GitHub Actions jobs in run [#41650780275](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41650780275). The current main documentation snapshot also passed all eight jobs in run [#41651845855](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41651845855).
 
 - **Ubuntu / Python 3.11, 3.12, 3.13, and 3.14:** checked-in unit suites, repaired and blocked demos, fresh source-archive creation, extracted archive test suites, and CLI smoke tests passed.
-- **macOS / Python 3.13:** full unit suite (87 tests) and repaired/blocked demos passed on the GitHub-hosted runner.
-- **Windows Server 2025 / Python 3.13:** task-lock tests and CLI smoke passed; the POSIX inherited-descriptor test is intentionally skipped on Windows. Repaired and blocked demos passed.
+- **macOS / Python 3.13:** full unit suite and repaired/blocked demos passed on the GitHub-hosted runner.
+- **Windows Server 2025 / Python 3.13:** both repaired and blocked demo matrix jobs, task-lock tests, and CLI smoke checks passed; the POSIX inherited-descriptor test is intentionally skipped on Windows.
 - **Packaging / Ubuntu / Python 3.13:** wheel and source distribution built successfully; the wheel installed in a clean virtual environment and its CLI version command passed.
-- The tested source archive was generated from the exact merged main commit and uploaded as a workflow artifact. The old hand-maintained `narrow-v0.5.0.tar.gz` snapshot was removed to avoid presenting a stale archive as the current source.
+- The tested source archive was generated from the exact checked-out commit and uploaded as a workflow artifact. The old hand-maintained `narrow-v0.5.0.tar.gz` snapshot was removed to avoid presenting a stale archive as the current source.
+- The current-main run is a follow-up documentation snapshot; the `v0.5.0` tag remains pinned to its original tested release commit.
 
 ## Still unvalidated
 

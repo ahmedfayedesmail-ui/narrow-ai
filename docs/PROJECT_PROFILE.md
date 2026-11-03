@@ -55,21 +55,21 @@ For untrusted repositories, generated code, or unattended execution, use a separ
 
 ## Current validation
 
-The merged `main` commit `7f52ee9387fe1c254d8e7695e916cfece2effeb3` passed all seven GitHub Actions jobs:
+The published `v0.5.0` tag points to release commit `5eb6a469c5c0317e2b9528dc2dcbfafd0fae5228`, which passed all eight GitHub Actions jobs in [run #41650780275](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41650780275):
 
 - Ubuntu with Python 3.11, 3.12, 3.13, and 3.14.
 - macOS with Python 3.13.
-- Windows Server 2025 with Python 3.13 for task-lock, demo, and CLI smoke checks.
+- Windows Server 2025 repaired and blocked demo workflows, task-lock tests, and CLI smoke checks.
 - Wheel and source-distribution build, plus clean wheel installation.
-- Repaired and bounded-failure local demo scenarios.
 
-These are CI and deterministic fake-agent results, not authenticated live Claude/Codex sessions or an independent security audit. See the [QA record](QA-RESULTS-v0.5.0.md).
+The current `main` commit `2d01a35ab43aef5775b80790fefb830abe59305e` also passed all eight jobs in [run #41651845855](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41651845855); that follow-up is documentation-only. These are CI and deterministic fake-agent results, not authenticated live Claude/Codex sessions or an independent security audit. See the [QA record](QA-RESULTS-v0.5.0.md).
 
 ## Installation and demo
 
 ```bash
 git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
 cd narrow-ai
+git checkout v0.5.0
 python -m pip install .
 narrow --version
 ```
