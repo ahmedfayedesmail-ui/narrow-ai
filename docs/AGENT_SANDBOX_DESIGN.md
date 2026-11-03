@@ -288,3 +288,50 @@ This is lifecycle ownership and cleanup groundwork only. It does not yet
 create or attach the proxy sidecar, prove Docker's selected default route,
 probe proxy readiness, or enforce that the agent cannot bypass the proxy.
 The normal drive workflow remains unchanged.
+## Opt-in Codex `drive` integration and proxy sidecar
+
+The POSIX/local-Docker Codex path is now wired behind the explicit
+`narrow drive --provider codex --container-agent` option. It requires
+`agent_container.image` and `agent_container.proxy_image` to be immutable
+OCI `@sha256:` references, `agent_container.egress_allow_hosts` to contain
+exact DNS names, and `OPENAI_API_KEY` to be explicitly present in the host
+environment. NARROW does not inspect or mount the user's Codex login profile.
+
+Before the agent starts, NARROW creates the task policy manifest and a
+short-lived provider credential lease, creates the execution's internal
+agent bridge and separate routed uplink, and launches a distinct proxy
+container. The proxy receives only its 0400 token file, runs non-root with a
+read-only root filesystem, all capabilities dropped, no-new-privileges, PID,
+memory, and CPU limits, and has no published host ports. NARROW then connects
+the proxy to the uplink, inspects that it is attached to exactly those two
+networks, validates ownership labels and security settings, and probes local
+listener readiness. Only after these checks does the agent command builder
+target the internal network and use the proxy alias and capability URL.
+
+The agent itself is attached only to the Docker `--internal` execution
+network; only the proxy sidecar is attached to the separate non-internal
+uplink. The host supervisor removes the agent first, then the proxy, then the
+uplink and internal networks, and finally the proxy capability file. Stale
+execution recovery follows the same exact-identity cleanup order.
+
+### Remaining Beta acceptance gates
+
+- The agent image and proxy image must be built, digest-pinned, and tested
+  against the actual Codex CLI/account configuration. NARROW deliberately
+  does not ship or silently pull a mutable image.
+- Docker-hosted end-to-end tests must prove denied destinations fail,
+  allowlisted provider requests work, and attempts to bypass HTTP(S)_PROXY
+  cannot reach public destinations from the agent's internal network.
+- The host bridge remains a trusted boundary: do not treat the topology as a
+  microVM, do not run it against an untrusted Docker daemon, and do not assume
+  host services bound to bridge interfaces are unreachable.
+- The current profile is POSIX-only. Windows credential-DACL support and
+  Windows container supervision are not implemented.
+- The mounted provider API key is available to code running as the agent.
+  This reduces host credential exposure but does not protect the key from a
+  malicious agent inside the container.
+- Authenticated Codex E2E, platform fault-injection, and independent security
+  review remain required before announcing Beta.
+
+Until these checks have real results, this is an opt-in experimental execution
+profile and the published package remains Alpha.
