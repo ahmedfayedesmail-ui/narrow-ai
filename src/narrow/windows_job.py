@@ -130,6 +130,7 @@ class WindowsJob:
     def __init__(self, handle: Any) -> None:
         self._handle = handle
         self._kernel32 = _kernel32()
+        _configure_job_apis(self._kernel32)
 
     @property
     def handle_value(self) -> int:
@@ -282,6 +283,12 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
             executable = os.fsdecode(executable)
         if cwd is not None:
             cwd = os.fsdecode(cwd)
+        if "\x00" in command_line:
+            raise ValueError("embedded null character in process command line")
+        if executable is not None and "\x00" in executable:
+            raise ValueError("embedded null character in executable path")
+        if cwd is not None and "\x00" in cwd:
+            raise ValueError("embedded null character in working directory")
 
         if startupinfo is None:
             startupinfo = subprocess.STARTUPINFO()
@@ -337,6 +344,8 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
             ctypes.POINTER(wintypes.HANDLE), wintypes.DWORD, wintypes.BOOL, wintypes.DWORD,
         ]
         kernel32.DuplicateHandle.restype = wintypes.BOOL
+        kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+        kernel32.CloseHandle.restype = wintypes.BOOL
 
         attribute_size = ctypes.c_size_t()
         # The first call is documented to fail with ERROR_INSUFFICIENT_BUFFER.
@@ -451,7 +460,6 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
             kernel32.DeleteProcThreadAttributeList(attribute_pointer)
             for duplicate_handle in duplicated_handles.values():
                 kernel32.CloseHandle(wintypes.HANDLE(duplicate_handle))
-            self._close_pipe_fds(p2cread, p2cwrite, c2pread, c2pwrite, errread, errwrite)
             if process_info.hThread:
                 kernel32.CloseHandle(process_info.hThread)
                 process_info.hThread = None
@@ -460,6 +468,7 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
                 # the handle. The outer launcher closes the Job, killing child.
                 kernel32.CloseHandle(process_info.hProcess)
                 process_info.hProcess = None
+            self._close_pipe_fds(p2cread, p2cwrite, c2pread, c2pwrite, errread, errwrite)
 
 
 def spawn_process_with_job(
