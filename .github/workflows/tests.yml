@@ -48,3 +48,22 @@ jobs:
           python -m narrow drive --help
           python -m narrow verify --help
           python -m narrow finish --help
+
+  windows-locks:
+    runs-on: windows-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Compile source
+        run: python -m compileall -q src tests
+      - name: Exercise Windows task locks
+        env:
+          PYTHONPATH: src
+        run: python -m unittest discover -s tests -p test_locks.py -v
+      - name: CLI smoke test
+        env:
+          PYTHONPATH: src
+        run: python -m narrow --version
