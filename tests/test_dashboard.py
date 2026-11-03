@@ -125,5 +125,13 @@ class DashboardTests(unittest.TestCase):
         self.assertNotIn("output_tail", serialized)
 
 
+    def test_dashboard_counts_ready_for_review_using_the_persisted_task_status(self):
+        self.store.update_status(self.task["id"], "READY_FOR_REVIEW")
+        status, _, body = self.request("GET", "/api/v1/overview")
+        self.assertEqual(status, 200)
+        overview = json.loads(body)
+        self.assertEqual(overview["counts"]["ready_for_review"], 1)
+
+
 if __name__ == "__main__":
     unittest.main()
