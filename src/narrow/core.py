@@ -349,6 +349,7 @@ def default_config() -> dict[str, Any]:
             "cpus": "2",
             "pids_limit": 256,
             "workspace_read_only": True,
+            "dependency_caches": [],
         },
     }
 
