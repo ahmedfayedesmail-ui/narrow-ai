@@ -62,5 +62,15 @@ class ContainerRecoveryTests(unittest.TestCase):
         cleanup.assert_not_called()
 
 
+    def test_recovery_cli_requires_exact_execution_arguments(self):
+        from narrow.cli import build_parser, cmd_recover_agent
+        args = build_parser().parse_args([
+            "recover-agent", "--task", TASK, "--execution", EXECUTION, "--yes"
+        ])
+        self.assertIs(args.func, cmd_recover_agent)
+        self.assertEqual(args.task, TASK)
+        self.assertEqual(args.execution, EXECUTION)
+
+
 if __name__ == "__main__":
     unittest.main()
