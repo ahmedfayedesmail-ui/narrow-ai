@@ -138,3 +138,26 @@ the human-approved contract as separate immutable versions and stores a
 field-level diff. Use `narrow contract-history --task <id>` to inspect it.
 The approved contract remains immutable during a task; changing scope requires
 a new task rather than silently mutating an active task's boundaries.
+
+## Experimental agent policy manifest and container hooks
+
+A separate feature branch is preparing the next isolation layer. It adds a
+task/execution-specific policy document under the host's private NARROW state
+directory and stateless Claude hooks that read that document rather than
+opening the host SQLite database. The manifest exposes the virtual
+`/workspace` path, bounded task context, allow/deny patterns, reserved paths,
+and human-acceptance controls. It does not serialize the host project path,
+SQLite database, environment, home directory, or provider credentials.
+
+The document carries a SHA-256 checksum to detect accidental corruption. This
+is **not a signature or proof of authenticity**: the eventual container
+launcher must mount it read-only, and the host supervisor remains authoritative.
+Container hook events are written to a task-scoped writable spool and are
+untrusted telemetry; they must never be treated as independent verification
+evidence or as authority to approve a task.
+
+**This is preparatory code, not a usable Agent Docker Runtime yet.** The current
+launcher does not execute AI agents in Docker. The egress proxy, credential
+broker, task/execution-labeled container lifecycle, orphan reconciliation,
+and host-side event-spool importer are still required before the feature can
+be enabled. Existing native agent execution is unchanged.
