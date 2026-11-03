@@ -79,6 +79,7 @@ def cmd_start(args: argparse.Namespace) -> int:
     denied = list(args.deny)
     acceptance = list(args.accept)
 
+    proposal = None
     if args.ollama and not args.auto_contract:
         raise NarrowError("--ollama requires --auto-contract.")
     if args.auto_contract:
@@ -118,6 +119,38 @@ def cmd_start(args: argparse.Namespace) -> int:
         raise NarrowError("Provide at least one --accept criterion or use --auto-contract.")
     store = Store(root)
     task = create_task(store, title, args.goal, allowed, denied, acceptance)
+    approved_contract = {
+        "title": title,
+        "goal": args.goal,
+        "allow": allowed,
+        "deny": denied,
+        "accept": acceptance,
+    }
+    if proposal is not None:
+        proposed_contract = {
+            "title": proposal["title"],
+            "goal": proposal["goal"],
+            "allow": proposal["allow"],
+            "deny": proposal["deny"],
+            "accept": proposal["accept"],
+        }
+        store.add_event(task["id"], "CONTRACT_VERSION_RECORDED", {
+            "version": 1, "label": "generated proposal", "source": proposal["generation"],
+            "contract": proposed_contract, "changes": {},
+        })
+        changes = {
+            key: {"from": proposed_contract[key], "to": approved_contract[key]}
+            for key in approved_contract if proposed_contract[key] != approved_contract[key]
+        }
+        store.add_event(task["id"], "CONTRACT_VERSION_RECORDED", {
+            "version": 2, "label": "human-approved contract", "source": "human-confirmed",
+            "parent_version": 1, "contract": approved_contract, "changes": changes,
+        })
+    else:
+        store.add_event(task["id"], "CONTRACT_VERSION_RECORDED", {
+            "version": 1, "label": "manually defined contract", "source": "user",
+            "contract": approved_contract, "changes": {},
+        })
     print("Task created in an isolated repository copy.")
     print(f"Task: {_task_label(task)}")
     print(f"Isolated workspace: {task['worktree']}")
@@ -129,6 +162,42 @@ def cmd_start(args: argparse.Namespace) -> int:
     print("Or use a configured generic adapter with `narrow drive --agent NAME`.")
     return 0
 
+
+
+def cmd_contract_history(args: argparse.Namespace) -> int:
+    """Show the proposed and approved task-contract versions and field-level drift."""
+    store = _store()
+    task = store.get_task(args.task)
+    with store.connect() as db:
+        rows = db.execute(
+            "SELECT payload_json,created_at FROM events WHERE task_id=? AND event_type='CONTRACT_VERSION_RECORDED' ORDER BY id",
+            (task["id"],),
+        ).fetchall()
+    versions = []
+    for row in rows:
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, json.JSONDecodeError):
+            continue
+        item = dict(payload)
+        item["created_at"] = row["created_at"]
+        versions.append(item)
+    if args.json:
+        print(json.dumps({"schema": "narrow.contract-history.v1", "task_id": task["id"], "versions": versions}, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Contract history — {task['title']} [{task['id']}]")
+    if not versions:
+        print("No versioned contract records exist for this task.")
+        return 0
+    for item in versions:
+        print(f"\nVersion {item.get('version')}: {item.get('label')} ({item.get('created_at')})")
+        if item.get("changes"):
+            for field, change in item["changes"].items():
+                print(f"  {field}: {json.dumps(change.get('from'), ensure_ascii=False)} -> {json.dumps(change.get('to'), ensure_ascii=False)}")
+        else:
+            print("  Initial contract")
+    print("\nThe approved task contract remains immutable for this task. Create a new task to change its scope.")
+    return 0
 
 
 def cmd_discover(args: argparse.Namespace) -> int:
@@ -697,6 +766,11 @@ def build_parser() -> argparse.ArgumentParser:
     propose.add_argument("--model", default="llama3:8b", help="Local Ollama model name (default: llama3:8b).")
     propose.add_argument("--json", action="store_true", help="Emit the task proposal as JSON.")
     propose.set_defaults(func=cmd_propose)
+
+    contract_history = sub.add_parser("contract-history", help="Show generated and approved contract versions for a task.")
+    contract_history.add_argument("--task")
+    contract_history.add_argument("--json", action="store_true", help="Emit version history as JSON.")
+    contract_history.set_defaults(func=cmd_contract_history)
 
     start = sub.add_parser("start", help="Create a task in an isolated repository copy.")
     start.add_argument("--title", help="Task title. Optional with --auto-contract.")
