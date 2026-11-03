@@ -89,13 +89,23 @@ class ContainerEgressTests(unittest.TestCase):
                 "NanoCpus": 500_000_000,
                 "Devices": None,
                 "Binds": None,
-                "NetworkMode": self.agent_network.name,
+                "Tmpfs": {"/tmp": "rw,noexec,nosuid,nodev,size=32m,mode=1777"},
+                "NetworkMode": self.uplink_network.name,
             },
-            "Mounts": [{
-                "Source": str(token_path.resolve()),
-                "Destination": "/run/secrets/proxy-token",
-                "RW": False,
-            }],
+            "Mounts": [
+                {
+                    "Type": "bind",
+                    "Source": str(token_path.resolve()),
+                    "Destination": "/run/secrets/proxy-token",
+                    "RW": False,
+                },
+                {
+                    "Type": "tmpfs",
+                    "Source": "tmpfs",
+                    "Destination": "/tmp",
+                    "RW": True,
+                },
+            ],
             "NetworkSettings": {
                 "Networks": {
                     self.agent_network.name: {"Aliases": ["narrow-egress-proxy"]},
