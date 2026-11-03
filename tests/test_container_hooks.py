@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from narrow.core import Store, create_task, init_project
-from narrow.container_hooks import handle_container_claude_hook
+from narrow.container_hooks import handle_container_claude_hook, import_container_hook_events
 from narrow.hooks import run_hook_cli
 from narrow.policy_manifest import write_policy_manifest
 
@@ -143,6 +143,34 @@ class ContainerHookTests(unittest.TestCase):
                     "tool_input": {"file_path": str(self.workspace / "src" / "app.py")},
                 })
         self.assertEqual(result, 2)
+
+    def test_host_importer_marks_agent_spool_records_as_untrusted_telemetry(self):
+        self.invoke("session-start", {"session_id": "spool-import"})
+        imported = import_container_hook_events(
+            self.store, self.task["id"], self.execution_id, self.spool
+        )
+        self.assertEqual(imported, 1)
+        events = self.store.events(self.task["id"], limit=100)
+        telemetry = [event for event in events if event["type"] == "CONTAINER_HOOK_TELEMETRY"]
+        self.assertEqual(len(telemetry), 1)
+        self.assertEqual(telemetry[0]["payload"]["trust"], "untrusted_agent_telemetry")
+        self.assertEqual(telemetry[0]["payload"]["reported_event_type"], "CLAUDE_SESSION_START")
+
+    def test_host_importer_ignores_spool_records_from_another_execution(self):
+        self.invoke("session-start", {"session_id": "spool-import"})
+        with self.spool.open("a", encoding="utf-8") as stream:
+            stream.write(json.dumps({
+                "schema": "narrow.container-hook-event.v1",
+                "task_id": self.task["id"],
+                "execution_id": str(uuid.uuid4()),
+                "event_type": "CLAUDE_SESSION_START",
+                "created_at": "2026-11-03T00:00:00+00:00",
+                "payload": {},
+            }) + "\\n")
+        imported = import_container_hook_events(
+            self.store, self.task["id"], self.execution_id, self.spool
+        )
+        self.assertEqual(imported, 1)
 
     def test_pre_compact_writes_a_task_scoped_handoff_inside_workspace(self):
         result = self.invoke("pre-compact", {"session_id": "s1"})
