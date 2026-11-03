@@ -120,6 +120,13 @@ def main() -> int:
     }
     config["max_repair_attempts"] = 2
     config_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
+    after_config_status = subprocess.run(
+        ["git", "-C", str(project), "status", "--porcelain=v1", "--untracked-files=all"],
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout
+    print(f"Fixture status after config write: {after_config_status!r}")
 
     run(
         [
