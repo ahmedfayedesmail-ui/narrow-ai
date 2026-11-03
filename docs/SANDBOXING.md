@@ -99,26 +99,28 @@ session storage, and sent in the `X-NARROW-Token` header. API requests also
 retain loopback Host and same-origin checks. POST/PUT/DELETE remain disabled
 even with a valid token; this is not a write-mode dashboard.
 
-On Windows, the supervised agent and verification children are created
-with `CREATE_SUSPENDED`. NARROW creates a non-inheritable Job Object with
-`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`, assigns the still-suspended process,
-checks membership with `IsProcessInJob`, and only then resumes its primary
-thread. The launcher deliberately does not use `CREATE_BREAKAWAY_FROM_JOB`:
-that flag requests escape from the parent Job rather than containment.
-Ordinary descendants created with `CreateProcess` inherit Job membership
-because this Job does not enable either breakaway limit. Setup failures are
-fail-closed and terminate the suspended process/assigned Job.
+On Windows 10 and Windows Server 2016 or newer, the supervised agent and
+verification children are created with `CreateProcessW` and
+`STARTUPINFOEXW`. NARROW creates a non-inheritable Job Object with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and supplies its handle through
+`PROC_THREAD_ATTRIBUTE_JOB_LIST` in the same process-creation call. The
+child is therefore born inside the Job; there is no later
+`AssignProcessToJobObject` window and no suspended orphan to clean up. The
+implementation also supplies a restricted standard-handle list because the
+standard-library `Popen` helper does not expose the Job List attribute. Its
+Win32 declarations use pointer-sized handle and attribute types.
 
-This closes the child-execution window between process creation and Job
-assignment: the child cannot run application code or create descendants before
-it is assigned. There remains a narrow resource-cleanup limitation if NARROW
-itself is forcibly terminated after the suspended process is created but
-before assignment completes: that process may remain suspended and inert rather
-than being attached to the Job. Windows Job assignment also cannot contain
-broker-created processes that are not created as descendants through ordinary
-`CreateProcess`, nor does it itself terminate daemon-managed Docker
-containers. Adversarial Windows CI is still required before claiming complete
-crash-lifetime containment.
+The launcher deliberately does not use `CREATE_BREAKAWAY_FROM_JOB` and does
+not enable `BREAKAWAY_OK` or `SILENT_BREAKAWAY_OK`. Ordinary descendants
+created through `CreateProcess` therefore remain in the Job. Unsupported
+Windows versions, incompatible parent Job constraints, or any attribute/API
+failure cause launch to fail closed; there is no uncontained fallback.
+The Job handle is non-inheritable and remains owned by the NARROW supervisor,
+so forced supervisor termination closes it and activates kill-on-close.
+Windows Job assignment does not cover broker-created processes that are not
+ordinary descendants, nor does it itself terminate daemon-managed Docker
+containers. The hard-kill and deep-descendant tests are added but still require
+a real Windows run before this behavior can be described as validated.
 
 Verification rows now carry an HMAC-SHA256 signature over the task, check name,
 snapshot, command, result, duration, timestamp, and digest of the retained
