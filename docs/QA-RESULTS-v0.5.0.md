@@ -22,7 +22,7 @@ The validated snapshot passed all 7 GitHub Actions jobs in run [#41644004390](ht
 - **macOS / Python 3.13:** full unit suite (87 tests) and repaired/blocked demos passed on the GitHub-hosted runner.
 - **Windows Server 2025 / Python 3.13:** task-lock tests and CLI smoke passed; the POSIX inherited-descriptor test is intentionally skipped on Windows. Repaired and blocked demos passed.
 - **Packaging / Ubuntu / Python 3.13:** wheel and source distribution built successfully; the wheel installed in a clean virtual environment and its CLI version command passed.
-- The tested source archive was generated from the exact validated commit and uploaded as a workflow artifact (SHA-256: `9600602d488eb9afebbfdcbf33688489d0de512233352765376b8284a5211442`). The old hand-maintained `narrow-v0.5.0.tar.gz` snapshot was removed to avoid presenting a stale archive as the current source.
+- The tested source archive was generated from the exact validated commit and uploaded as a workflow artifact. The old hand-maintained `narrow-v0.5.0.tar.gz` snapshot was removed to avoid presenting a stale archive as the current source.
 
 ## Still unvalidated
 
