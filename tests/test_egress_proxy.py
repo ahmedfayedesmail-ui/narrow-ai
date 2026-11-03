@@ -108,12 +108,16 @@ class EgressProxyPolicyTests(unittest.TestCase):
 
 
     @staticmethod
-    def make_client_hello(hostname: str, split_after: int | None = None) -> bytes:
+    def make_client_hello(
+        hostname: str,
+        split_after: int | None = None,
+        extra_extensions: bytes = b"",
+    ) -> bytes:
         host = hostname.encode("ascii")
         server_name = b"\x00" + len(host).to_bytes(2, "big") + host
         sni_list = len(server_name).to_bytes(2, "big") + server_name
         sni_extension = b"\x00\x00" + len(sni_list).to_bytes(2, "big") + sni_list
-        extensions = sni_extension
+        extensions = sni_extension + extra_extensions
         body = (
             b"\x03\x03" + b"\x00" * 32
             + b"\x00"
@@ -149,6 +153,18 @@ class EgressProxyPolicyTests(unittest.TestCase):
         finally:
             left.close()
             right.close()
+
+    def test_tls_client_hello_rejects_ech_even_with_allowlisted_outer_sni(self):
+        # ECH can hide the inner SNI while presenting a public outer name.
+        # The proxy must not treat that outer name as proof of the final route.
+        record = self.make_client_hello(
+            "api.anthropic.com",
+            extra_extensions=b"\\xfe\\x0d\\x00\\x00",
+        )
+        record_length = int.from_bytes(record[3:5], "big")
+        message = record[5:5 + record_length]
+        with self.assertRaisesRegex(ProxyPolicyError, "Encrypted ClientHello"):
+            _extract_client_hello_sni(message)
 
     def test_tls_client_hello_supports_fragmented_handshake_records(self):
         left, right = socket.socketpair()
