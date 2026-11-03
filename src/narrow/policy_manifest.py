@@ -73,8 +73,12 @@ def _validate_execution_id(execution_id: str) -> str:
     return str(parsed)
 
 
-def _validate_patterns(value: Any, field: str) -> list[str]:
-    if not isinstance(value, list) or not value or len(value) > 100:
+def _validate_patterns(value: Any, field: str, *, allow_empty: bool = False) -> list[str]:
+    if (
+        not isinstance(value, list)
+        or (not allow_empty and not value)
+        or len(value) > 100
+    ):
         raise NarrowError(f"Policy {field} must be a list of at most 100 repository-relative patterns.")
     result: list[str] = []
     for item in value:
@@ -98,21 +102,7 @@ def _build_manifest(task: dict[str, Any], execution_id: str) -> dict[str, Any]:
         raise NarrowError("Task record contains an invalid task ID.")
 
     allowed = _validate_patterns(task.get("allowed"), "allowed_paths")
-    denied_value = task.get("denied")
-    if not isinstance(denied_value, list) or len(denied_value) > 100:
-        raise NarrowError("Policy denied_paths must be a list of at most 100 patterns.")
-    denied: list[str] = []
-    for item in denied_value:
-        if (
-            not isinstance(item, str)
-            or not item.strip()
-            or len(item) > 1000
-            or "\x00" in item
-            or item.replace("\\", "/").startswith("/")
-            or ".." in item.replace("\\", "/").split("/")
-        ):
-            raise NarrowError("Policy denied_paths contains an invalid path pattern.")
-        denied.append(item)
+    denied = _validate_patterns(task.get("denied"), "denied_paths", allow_empty=True)
 
     acceptance_value = task.get("acceptance")
     if not isinstance(acceptance_value, list) or not 1 <= len(acceptance_value) <= 100:
@@ -314,10 +304,5 @@ def read_policy_manifest(
     if not isinstance(scope, dict):
         raise NarrowError("Policy manifest scope is malformed.")
     _validate_patterns(scope.get("allowed_paths"), "allowed_paths")
-    denied = scope.get("denied_paths")
-    if not isinstance(denied, list) or len(denied) > 100:
-        raise NarrowError("Policy manifest denied_paths is malformed.")
-    for item in denied:
-        if not isinstance(item, str) or not item.strip() or len(item) > 1000 or "\x00" in item:
-            raise NarrowError("Policy manifest denied_paths contains an invalid item.")
+    _validate_patterns(scope.get("denied_paths"), "denied_paths", allow_empty=True)
     return manifest
