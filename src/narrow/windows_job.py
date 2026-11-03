@@ -103,6 +103,16 @@ class _ProcessInformation(ctypes.Structure):
     ]
 
 
+def _handle_value(handle: Any) -> int:
+    """Normalize ctypes HANDLE objects and integer handle values safely."""
+    value = getattr(handle, "value", handle)
+    if value is None:
+        raise NarrowError("A required Windows handle is null.")
+    if isinstance(value, bytes):
+        return int.from_bytes(value, byteorder=sys.byteorder, signed=False)
+    return int(value)
+
+
 def _kernel32() -> Any:
     if os.name != "nt":
         raise NarrowError("Windows Job Objects are available only on Windows.")
@@ -136,7 +146,7 @@ class WindowsJob:
     def handle_value(self) -> int:
         if not self._handle:
             raise NarrowError("The Windows Job Object handle is already closed.")
-        return int(self._handle)
+        return _handle_value(self._handle)
 
     @classmethod
     def create(cls) -> "WindowsJob":
@@ -377,7 +387,7 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
             # while another thread may create a process.
             current_process = kernel32.GetCurrentProcess()
             for original_handle in inherited_handles:
-                original_value = int(original_handle)
+                original_value = _handle_value(original_handle)
                 if original_value in duplicated_handles:
                     continue
                 duplicate = wintypes.HANDLE()
@@ -452,7 +462,7 @@ class _AtomicJobPopen(subprocess.Popen[Any]):
                 kernel32, process_info.hProcess, process_info.hThread,
                 wintypes.HANDLE(self._narrow_job_handle),
             )
-            self._handle = subprocess.Handle(int(process_info.hProcess))
+            self._handle = subprocess.Handle(_handle_value(process_info.hProcess))
             self.pid = int(process_info.dwProcessId)
             self._child_created = True
             process_info.hProcess = None  # ownership transferred to Popen
