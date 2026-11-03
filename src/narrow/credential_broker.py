@@ -327,7 +327,7 @@ def revoke_execution_credential_files(
             info = directory.lstat()
             if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
                 raise NarrowError("Execution recovery directory chain contains a link or non-directory.")
-        if not credentials.exists():
+        if not credentials.exists() and not credentials.is_symlink():
             return 0
         info = credentials.lstat()
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
