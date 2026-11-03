@@ -626,7 +626,7 @@ class DriveTests(unittest.TestCase):
 
 
     def test_check_evidence_signature_detects_database_row_tampering(self):
-        task = self.new_task()
+        task = self.task
         workspace = Path(task["worktree"])
         snapshot = snapshot_hash(workspace)
         save_check_run(
