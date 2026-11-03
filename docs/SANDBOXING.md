@@ -104,11 +104,14 @@ verification children are created with `CreateProcessW` and
 `STARTUPINFOEXW`. NARROW creates a non-inheritable Job Object with
 `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` and supplies its handle through
 `PROC_THREAD_ATTRIBUTE_JOB_LIST` in the same process-creation call. The
-child is therefore born inside the Job; there is no later
-`AssignProcessToJobObject` window and no suspended orphan to clean up. The
-implementation also supplies a restricted standard-handle list because the
-standard-library `Popen` helper does not expose the Job List attribute. Its
-Win32 declarations use pointer-sized handle and attribute types.
+initial thread is created suspended, so no application code runs before
+NARROW confirms `IsProcessInJob` and resumes that thread with
+`ResumeThread`. A forced supervisor exit at any point after creation closes
+the Job handle and kills the suspended or running Job member; no suspended
+child exists outside the Job. The implementation also supplies a restricted
+standard-handle list because the standard-library `Popen` helper does not
+expose the Job List attribute. Its Win32 declarations use pointer-sized
+handle and attribute types.
 
 The launcher deliberately does not use `CREATE_BREAKAWAY_FROM_JOB` and does
 not enable `BREAKAWAY_OK` or `SILENT_BREAKAWAY_OK`. Ordinary descendants
