@@ -38,7 +38,7 @@ For the experimental container profile, build a project-specific image that incl
 
 Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md and docs/SANDBOXING.md for installation, configuration, and safety details.
 
-The dashboard remains read-only. Mutation controls are intentionally not exposed on an unauthenticated local HTTP server. Windows process/job lifetime validation, microVM support, turnkey framework-specific plugins, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
+The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. Windows Job Object kill-on-close handling is implemented for supervised first-level child processes, but the spawn-to-assignment race and detached/breakaway process cases remain unverified. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. These changes are feature-branch work and do not change the v0.5.1 PyPI release.
 
 ## Try the experimental workflow (feature branch only)
 
