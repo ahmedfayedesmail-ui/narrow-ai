@@ -9,6 +9,7 @@ isolation, not protection from a malicious model or tool.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import os
 import re
 import stat
@@ -207,6 +208,8 @@ def validate_credential_lease(lease: CredentialLease, *, now: float | None = Non
         or lease.environment_name not in _PROVIDER_KEYS[lease.provider]
         or not _TASK_ID.fullmatch(lease.task_id)
         or _validate_execution_id(lease.execution_id) != lease.execution_id
+        or not lease.path.name.startswith(f"{lease.provider}-")
+        or not re.fullmatch(r"[0-9a-f]{32}\.secret", lease.path.name[len(lease.provider) + 1:])
         or lease.path.parent.name != "credentials"
         or lease.path.parent.parent.name != lease.execution_id
         or lease.path.parent.parent.parent.name != lease.task_id
@@ -248,6 +251,6 @@ def validate_credential_lease(lease: CredentialLease, *, now: float | None = Non
     except OSError as exc:
         raise NarrowError("Could not safely validate provider credential lease.") from exc
     actual = hashlib.sha256(payload).hexdigest()
-    if not __import__("hmac").compare_digest(actual, lease.sha256):
+    if not hmac.compare_digest(actual, lease.sha256):
         raise NarrowError("Credential lease content does not match the issued digest.")
     return lease.path
