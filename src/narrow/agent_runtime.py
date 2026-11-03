@@ -142,6 +142,17 @@ def build_docker_agent_command(
     ):
         raise NarrowError("Docker agent command requires the exact Codex credential lease for this execution.")
     secret_path = validate_credential_lease(credential_lease)
+    if uid is None or gid is None:
+        if not hasattr(os, "getuid") or not hasattr(os, "getgid"):
+            raise NarrowError("Docker agent requires an explicit non-root POSIX UID and GID.")
+        uid = os.getuid() if uid is None else uid
+        gid = os.getgid() if gid is None else gid
+    if (
+        not isinstance(uid, int) or isinstance(uid, bool)
+        or not isinstance(gid, int) or isinstance(gid, bool)
+        or not 1 <= uid <= 65535 or not 1 <= gid <= 65535
+    ):
+        raise NarrowError("Docker agent UID and GID must be explicit non-root numeric identities.")
     workspace = _validated_mount_source(workspace_path, directory=True)
     task_home = _validated_mount_source(task_home_path, directory=True)
     manifest = _validated_mount_source(policy_manifest_path, directory=False)
@@ -163,17 +174,6 @@ def build_docker_agent_command(
         or not re.fullmatch(r"[A-Za-z0-9_-]{32,128}", proxy_token)
     ):
         raise NarrowError("Docker agent requires a bounded URL-safe per-execution egress capability token.")
-    if uid is None or gid is None:
-        if not hasattr(os, "getuid") or not hasattr(os, "getgid"):
-            raise NarrowError("Docker agent requires an explicit non-root POSIX UID and GID.")
-        uid = os.getuid() if uid is None else uid
-        gid = os.getgid() if gid is None else gid
-    if (
-        not isinstance(uid, int) or isinstance(uid, bool)
-        or not isinstance(gid, int) or isinstance(gid, bool)
-        or not 1 <= uid <= 65535 or not 1 <= gid <= 65535
-    ):
-        raise NarrowError("Docker agent UID and GID must be explicit non-root numeric identities.")
 
     normalized_provider = normalize_provider_argv("codex", provider_command)
     network = f"narrow-agent-{task_id[:32]}-{execution.replace('-', '')[:12]}"
