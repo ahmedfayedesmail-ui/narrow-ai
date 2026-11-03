@@ -4,7 +4,7 @@
 
 **Category:** Local-first AI coding-agent task supervisor / execution coordination layer.
 
-**Project status:** Public Alpha — v0.5.0. Not a stable release and not an OS sandbox.
+**Project status:** Public Alpha — v0.5.1. Not a stable release and not an OS sandbox. Feature-branch container-agent work is opt-in and is not included in the published package.
 
 ## What it is
 
@@ -55,21 +55,21 @@ For untrusted repositories, generated code, or unattended execution, use a separ
 
 ## Current validation
 
-The published `v0.5.0` tag points to release commit `5eb6a469c5c0317e2b9528dc2dcbfafd0fae5228`, which passed all eight GitHub Actions jobs in [run #41650780275](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41650780275):
+The published `v0.5.1` package keeps the previously validated Alpha runtime and contains no enabled agent-container runtime. Its feature-branch changes are validated separately before any later Beta release.
 
 - Ubuntu with Python 3.11, 3.12, 3.13, and 3.14.
 - macOS with Python 3.13.
 - Windows Server 2025 repaired and blocked demo workflows, task-lock tests, and CLI smoke checks.
 - Wheel and source-distribution build, plus clean wheel installation.
 
-The current `main` commit `2d01a35ab43aef5775b80790fefb830abe59305e` also passed all eight jobs in [run #41651845855](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41651845855); that follow-up is documentation-only. These are CI and deterministic fake-agent results, not authenticated live Claude/Codex sessions or an independent security audit. See the [QA record](QA-RESULTS-v0.5.0.md).
+Historical v0.5.0 CI results are evidence for that earlier Alpha source snapshot only. They are not authenticated live Claude/Codex sessions, real agent-container E2E, or an independent security audit. See the [QA record](QA-RESULTS-v0.5.0.md).
 
 ## Installation and demo
 
 ```bash
 git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
 cd narrow-ai
-git checkout v0.5.0
+git checkout v0.5.1
 python -m pip install .
 narrow --version
 ```
@@ -85,7 +85,7 @@ The demo uses a fake local agent and deliberately stops for human review; it is 
 
 ## Maturity and release gates
 
-NARROW remains Alpha. Before claiming stable, security-sensitive, or unattended autonomous execution, the project still needs authenticated provider end-to-end tests, stronger cross-platform process/lease fault-injection, a maintained outer OS sandbox, adversarial boundary testing, and independent security review.
+NARROW remains Alpha. The experimental Codex container profile is POSIX/local-Docker only and is not a supported universal agent sandbox. Before announcing Beta, the branch must pass the real Docker proxy-only network acceptance job and broader runtime tests; an authenticated Codex session, cross-platform fault-injection, adversarial boundary testing, and independent security review remain additional gates.
 
 The next milestone is evidence-led user testing and closure of these gates—not feature expansion for its own sake.
 
