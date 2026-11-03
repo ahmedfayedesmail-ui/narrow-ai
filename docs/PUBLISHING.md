@@ -18,12 +18,12 @@ Configure a Trusted Publisher on each index. These are account-owner steps and c
 
 1. Sign in to TestPyPI.
 2. Create a **pending publisher** for a new project named `narrow-ai`. Pending publishers do not reserve the name until the first successful upload, so register it immediately before testing the publish.
-4. Use these exact GitHub Actions values:
+3. Use these exact GitHub Actions values:
    - Owner: `ahmedfayedesmail-ui`
    - Repository: `narrow-ai`
    - Workflow: `publish-pypi.yml`
    - Environment: `testpypi`
-5. Save the pending publisher.
+4. Save the pending publisher.
 
 ### PyPI production
 
