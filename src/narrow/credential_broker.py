@@ -334,7 +334,7 @@ def revoke_execution_credential_files(
             raise NarrowError("Execution credentials path is linked or not a directory.")
         removed = 0
         for entry in credentials.iterdir():
-            match = re.fullmatch(r"(?:claude|codex)-[0-9a-f]{32}\\.secret", entry.name)
+            match = re.fullmatch(r"(?:claude|codex)-[0-9a-f]{32}\.secret", entry.name)
             if not match:
                 raise NarrowError("Execution credentials directory contains an unexpected entry; refusing bulk cleanup.")
             metadata = entry.lstat()
