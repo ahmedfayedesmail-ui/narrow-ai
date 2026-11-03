@@ -103,6 +103,17 @@ that a daemon-managed container will be terminated on host crash. Container
 lifecycle needs a separately supervised container ID, explicit cleanup, and
 crash-recovery reconciliation.
 
+The preparatory `narrow.container_lifecycle` module now supplies execution-
+scoped ownership labels and ownership-checked list/remove operations for agent
+containers. Cleanup re-inspects the container immediately before removal and
+refuses to act unless all NARROW managed/component/task/execution/schema labels
+match exactly. This prevents an ordinary cleanup path from deleting an
+unrelated container by a reused name or stale ID. Docker/Podman daemon access
+remains a trusted authority and can forge labels; these labels are an ownership
+guard, not a security boundary against a daemon administrator. Durable
+execution leases, host-crash reconciliation, network cleanup, and integration
+with an actual agent launcher remain outstanding.
+
 ## Required acceptance tests
 
 - The agent can modify only the isolated task copy; a sentinel in the original
