@@ -255,3 +255,19 @@ and removes the internal network only after confirming no matching agent
 container remains. It refuses malformed identities, redirected directories,
 unexpected credential-directory entries, and lingering containers. This
 command is for stale executions only; do not run it against an active agent.
+
+## Deterministic agent command builder
+
+The build_docker_agent_command helper now produces the exact Codex Docker run
+argument vector accepted by the host supervisor. It validates the immutable
+image digest, task/execution identity, credential lease, policy manifest, real
+bind-mount sources, URL-safe per-execution proxy token, and non-root UID/GID.
+It emits only the four intended mounts, the internal execution network,
+execution ownership labels, a minimal environment, bounded resources, the
+in-container credential entrypoint, and the normalized Codex command.
+
+This remains launch planning only. The caller must still create and verify the
+internal network, start a separately controlled proxy sidecar with the same
+per-execution capability, confirm the proxy is the only path to external
+network access, and then pass this argv to the host supervisor. The builder
+does not start containers or prove that the proxy sidecar exists.
