@@ -8,27 +8,50 @@ import time
 import unittest
 from pathlib import Path
 from unittest import skipUnless
+from unittest.mock import patch
 
 from narrow.windows_job import spawn_process_with_job
 
 
 @skipUnless(os.name == "nt", "Windows Job Objects are available only on Windows.")
 class WindowsJobTests(unittest.TestCase):
-    def test_process_is_in_job_immediately_after_atomic_launch(self):
-        script = "import time; time.sleep(0.1)"
-        process, job = spawn_process_with_job(
-            [sys.executable, "-c", script],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-        )
-        try:
-            self.assertIsNotNone(job)
-            self.assertTrue(_windows_process_in_job(process, job.handle_value))
-            self.assertEqual(process.wait(timeout=5), 0)
-        finally:
-            if job is not None:
-                job.close()
+    def test_child_is_suspended_until_atomic_job_membership_is_verified(self):
+        with tempfile.TemporaryDirectory() as temp:
+            marker = Path(temp) / "child-started.txt"
+            script = (
+                "from pathlib import Path; import time; "
+                f"Path({str(marker)!r}).write_text('started', encoding='utf-8'); "
+                "time.sleep(0.1)"
+            )
+            from narrow import windows_job
+
+            real_verify = windows_job._verify_job_membership_and_resume
+            verified: list[bool] = []
+
+            def verify_before_resume(kernel32, process_handle, thread_handle, job_handle):
+                self.assertFalse(marker.exists(), "Child code ran before Job membership verification.")
+                self.assertTrue(_windows_handles_in_job(process_handle, job_handle))
+                real_verify(kernel32, process_handle, thread_handle, job_handle)
+                verified.append(True)
+
+            with patch(
+                "narrow.windows_job._verify_job_membership_and_resume",
+                side_effect=verify_before_resume,
+            ):
+                process, job = spawn_process_with_job(
+                    [sys.executable, "-c", script],
+                    stdin=subprocess.DEVNULL,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            try:
+                self.assertIsNotNone(job)
+                self.assertEqual(verified, [True])
+                self.assertEqual(process.wait(timeout=5), 0)
+                self.assertTrue(marker.exists(), "The primary thread was not resumed.")
+            finally:
+                if job is not None:
+                    job.close()
 
     def test_closing_job_terminates_child_and_grandchild(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -149,6 +172,25 @@ class NonWindowsJobCompatibilityTests(unittest.TestCase):
         self.assertIsNone(job)
         self.assertEqual(process.returncode, 0, stderr)
         self.assertIn("narrow-child-ok", stdout)
+
+
+def _windows_handles_in_job(process_handle: int, job_handle: int) -> bool:
+    import ctypes
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.IsProcessInJob.argtypes = [
+        wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)
+    ]
+    kernel32.IsProcessInJob.restype = wintypes.BOOL
+    member = wintypes.BOOL()
+    if not kernel32.IsProcessInJob(
+        wintypes.HANDLE(int(process_handle)),
+        wintypes.HANDLE(int(job_handle)),
+        ctypes.byref(member),
+    ):
+        raise ctypes.WinError(ctypes.get_last_error())
+    return bool(member.value)
 
 
 def _windows_process_in_job(process: subprocess.Popen[bytes], job_handle: int) -> bool:
