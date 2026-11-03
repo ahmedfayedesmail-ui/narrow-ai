@@ -125,3 +125,12 @@ The wrapper is applied to verification commands only. It does not wrap the AI pr
 Project auto-discovery reads manifests and file names but never executes suggested test commands. Contract proposals from Ollama are sent only to the local loopback endpoint and may include a bounded selection of project source files. Proposals never create a task or approve paths automatically; a human must review and confirm them.
 
 External provider plugins are imported Python code from the user's environment. They are trusted extensions, not a security sandbox. The dashboard intentionally remains read-only until an authenticated mutation design has been reviewed. Windows inherited-handle crash lifetime and process containment are not claimed as validated by this branch.
+
+
+## Feature-branch hardening notes
+
+- The dashboard still has no mutation routes. A random per-launch token is now required on JSON API requests; the browser receives it through a URL fragment, stores it in sessionStorage, and sends it in `X-NARROW-Token`. Host and Origin checks remain in place. A valid token does not enable POST/PUT/DELETE.
+- On Windows, the first-level process launched by the supervisor is assigned to a non-inheritable Job Object with kill-on-close enabled. Assignment follows process creation, so there is a small startup race; breakaway jobs and daemon-managed external containers are not guaranteed to be covered. Full crash adversarial testing is still a release gate.
+- Verification records are HMAC-SHA256 signed with a local per-project key kept outside the task worktree in the user's NARROW cache. The signature binds the saved output digest, command, exit code, duration, timestamp, and snapshot. This detects SQLite-only tampering but cannot defeat a compromised same-user host or a stolen/replaced key.
+- Contract proposals and human-approved contracts are recorded as separate versions with field-level differences. Active task contracts remain immutable; changing scope requires a new task.
+- Optional package-manager caches are private and task-scoped. NARROW does not mount the developer's home package-manager caches or credential directories.
