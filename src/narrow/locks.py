@@ -45,7 +45,6 @@ def task_execution_lock(state_dir: Path, task_id: str) -> Iterator[int]:
     except OSError as exc:
         raise NarrowError(f"Could not open the task lock safely: {exc}") from exc
 
-    acquired = False
     try:
         opened = os.fstat(fd)
         current = os.lstat(lock_path)
@@ -74,20 +73,13 @@ def task_execution_lock(state_dir: Path, task_id: str) -> Iterator[int]:
                 if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
                     raise NarrowError("This task already has an active NARROW operation. Wait for it to finish, or inspect the task before retrying.") from exc
                 raise NarrowError(f"Could not acquire the task execution lock: {exc}") from exc
-        acquired = True
         yield fd
     finally:
-        try:
-            if acquired:
-                if os.name == "nt":
-                    import msvcrt
-                    os.lseek(fd, 0, os.SEEK_SET)
-                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
-                else:
-                    import fcntl
-                    fcntl.flock(fd, fcntl.LOCK_UN)
-        finally:
-            os.close(fd)
+        # Do not explicitly unlock: on POSIX the inherited descriptor in the
+        # first-level child must keep the lease alive after this context exits.
+        # Closing this descriptor releases the lock only when the last inherited
+        # descriptor is also closed. Windows crash-lifetime remains unverified.
+        os.close(fd)
 
 
 @contextmanager
