@@ -61,6 +61,18 @@ def agent_container_label_args(task_id: str, execution_id: str) -> list[str]:
     return [item for key, value in labels.items() for item in ("--label", f"{key}={value}")]
 
 
+def egress_proxy_container_labels(task_id: str, execution_id: str) -> dict[str, str]:
+    """Return ownership labels for the execution's dedicated egress sidecar."""
+    labels = agent_container_labels(task_id, execution_id)
+    labels[_LABEL_COMPONENT] = "egress-proxy"
+    return labels
+
+
+def egress_proxy_container_label_args(task_id: str, execution_id: str) -> list[str]:
+    labels = egress_proxy_container_labels(task_id, execution_id)
+    return [item for key, value in labels.items() for item in ("--label", f"{key}={value}")]
+
+
 def _engine_path(engine: str) -> str:
     if not isinstance(engine, str) or engine not in {"docker", "podman"}:
         raise NarrowError("Container lifecycle engine must be docker or podman.")
@@ -108,12 +120,20 @@ def _owned_container(
     container_id: str,
     task_id: str,
     execution_id: str,
+    *,
+    component: str = "agent",
 ) -> AgentContainer:
     task, execution = _identity(task_id, execution_id)
+    if component not in {"agent", "egress-proxy"}:
+        raise NarrowError("Unsupported NARROW container component.")
     inspected = _inspect(engine, container_id)
     config = inspected.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
-    expected = agent_container_labels(task, execution)
+    expected = (
+        agent_container_labels(task, execution)
+        if component == "agent"
+        else egress_proxy_container_labels(task, execution)
+    )
     if not isinstance(labels, dict) or any(labels.get(key) != value for key, value in expected.items()):
         raise NarrowError(
             "Refusing to control this container: its NARROW managed/task/execution labels do not match exactly."
@@ -170,6 +190,48 @@ def cleanup_execution_agent_containers(
     for container in containers:
         # Re-inspect immediately before deletion to avoid acting on stale list data.
         _owned_container(engine, container.container_id, task_id, execution_id)
+        _run(engine, ["container", "rm", "--force", container.container_id], timeout=30)
+        removed += 1
+    return removed
+
+
+def list_execution_egress_proxy_containers(
+    engine: str,
+    task_id: str,
+    execution_id: str,
+) -> list[AgentContainer]:
+    """List only the dedicated egress sidecars for one exact execution."""
+    task, execution = _identity(task_id, execution_id)
+    ids_raw = _run(engine, [
+        "container", "ls", "--all", "--quiet",
+        "--filter", f"label={_LABEL_MANAGED}=true",
+        "--filter", f"label={_LABEL_COMPONENT}=egress-proxy",
+        "--filter", f"label={_LABEL_TASK}={task}",
+        "--filter", f"label={_LABEL_EXECUTION}={execution}",
+    ])
+    ids = [line.strip() for line in ids_raw.splitlines() if line.strip()]
+    if len(ids) > 4:
+        raise NarrowError("Unexpectedly large number of egress sidecars for one execution; refusing cleanup.")
+    result: list[AgentContainer] = []
+    seen: set[str] = set()
+    for container_id in ids:
+        if container_id in seen:
+            continue
+        seen.add(container_id)
+        result.append(_owned_container(engine, container_id, task, execution, component="egress-proxy"))
+    return result
+
+
+def cleanup_execution_egress_proxy_containers(
+    engine: str,
+    task_id: str,
+    execution_id: str,
+) -> int:
+    """Remove only sidecars whose complete execution ownership labels still match."""
+    containers = list_execution_egress_proxy_containers(engine, task_id, execution_id)
+    removed = 0
+    for container in containers:
+        _owned_container(engine, container.container_id, task_id, execution_id, component="egress-proxy")
         _run(engine, ["container", "rm", "--force", container.container_id], timeout=30)
         removed += 1
     return removed
@@ -286,14 +348,99 @@ def list_execution_agent_networks(
     return result
 
 
+
+def egress_uplink_network_labels(task_id: str, execution_id: str) -> dict[str, str]:
+    """Return labels for the sidecar-only externally routed bridge."""
+    labels = agent_network_labels(task_id, execution_id)
+    labels[_LABEL_COMPONENT] = "egress-uplink"
+    return labels
+
+
+def egress_uplink_network_label_args(task_id: str, execution_id: str) -> list[str]:
+    labels = egress_uplink_network_labels(task_id, execution_id)
+    return [item for key, value in labels.items() for item in ("--label", f"{key}={value}")]
+
+
+def create_execution_egress_uplink_network(
+    engine: str,
+    task_id: str,
+    execution_id: str,
+) -> AgentNetwork:
+    """Create a dedicated routed bridge reserved for the egress proxy sidecar."""
+    task, execution = _identity(task_id, execution_id)
+    name = f"narrow-egress-uplink-{task[:24]}-{execution.replace('-', '')[:12]}"
+    network_id = _run(engine, [
+        "network", "create", "--driver", "bridge",
+        *egress_uplink_network_label_args(task, execution), name,
+    ], timeout=30).strip()
+    inspected = _inspect_network(engine, network_id)
+    labels = inspected.get("Labels")
+    if not isinstance(labels, dict) or any(
+        labels.get(key) != value for key, value in egress_uplink_network_labels(task, execution).items()
+    ):
+        raise NarrowError("Created egress uplink network does not carry exact NARROW ownership labels.")
+    if inspected.get("Internal") is not False or inspected.get("Driver") != "bridge" or inspected.get("Name") != name:
+        raise NarrowError("Egress uplink must be a dedicated, non-internal bridge network.")
+    return AgentNetwork(network_id, name, task, execution, "bridge")
+
+
+def list_execution_egress_uplink_networks(
+    engine: str,
+    task_id: str,
+    execution_id: str,
+) -> list[AgentNetwork]:
+    task, execution = _identity(task_id, execution_id)
+    ids_raw = _run(engine, [
+        "network", "ls", "--quiet",
+        "--filter", f"label={_LABEL_MANAGED}=true",
+        "--filter", f"label={_LABEL_COMPONENT}=egress-uplink",
+        "--filter", f"label={_LABEL_TASK}={task}",
+        "--filter", f"label={_LABEL_EXECUTION}={execution}",
+    ])
+    ids = [line.strip() for line in ids_raw.splitlines() if line.strip()]
+    if len(ids) > 4:
+        raise NarrowError("Unexpectedly large number of egress uplink networks for one execution; refusing cleanup.")
+    result: list[AgentNetwork] = []
+    for network_id in dict.fromkeys(ids):
+        inspected = _inspect_network(engine, network_id)
+        labels = inspected.get("Labels")
+        if not isinstance(labels, dict) or any(
+            labels.get(key) != value for key, value in egress_uplink_network_labels(task, execution).items()
+        ):
+            raise NarrowError("Refusing to control an egress network with mismatched NARROW ownership labels.")
+        name = inspected.get("Name")
+        if inspected.get("Internal") is not False or inspected.get("Driver") != "bridge" or not isinstance(name, str) or not name.startswith("narrow-egress-uplink-"):
+            raise NarrowError("Egress uplink network is not a verified non-internal bridge.")
+        result.append(AgentNetwork(network_id, name, task, execution, "bridge"))
+    return result
+
+
+def cleanup_execution_egress_uplink_networks(
+    engine: str,
+    task_id: str,
+    execution_id: str,
+) -> int:
+    if list_execution_egress_proxy_containers(engine, task_id, execution_id):
+        raise NarrowError("Refusing to remove an egress uplink while its task/execution proxy sidecar exists.")
+    networks = list_execution_egress_uplink_networks(engine, task_id, execution_id)
+    removed = 0
+    for network in networks:
+        current = {item.network_id for item in list_execution_egress_uplink_networks(engine, task_id, execution_id)}
+        if network.network_id not in current:
+            raise NarrowError("Egress uplink ownership changed during cleanup.")
+        _run(engine, ["network", "rm", network.network_id], timeout=30)
+        removed += 1
+    return removed
+
+
 def cleanup_execution_agent_networks(
     engine: str,
     task_id: str,
     execution_id: str,
 ) -> int:
     """Remove the exact execution's internal networks only after its agents are gone."""
-    if list_execution_agent_containers(engine, task_id, execution_id):
-        raise NarrowError("Refusing to remove an agent network while task/execution agent containers still exist.")
+    if list_execution_agent_containers(engine, task_id, execution_id) or list_execution_egress_proxy_containers(engine, task_id, execution_id):
+        raise NarrowError("Refusing to remove an agent network while task/execution agent or proxy containers still exist.")
     networks = list_execution_agent_networks(engine, task_id, execution_id)
     removed = 0
     for network in networks:
