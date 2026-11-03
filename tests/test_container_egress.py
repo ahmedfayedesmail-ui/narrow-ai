@@ -233,7 +233,6 @@ class ContainerEgressTests(unittest.TestCase):
             runtime = EgressProxyRuntime(
                 container_id=CONTAINER_ID,
                 container_name="narrow-egress-proxy-test",
-                token="x" * 48,
                 token_path=state_dir / "proxy.token",
                 agent_network=self.agent_network,
                 uplink_network=self.uplink_network,
