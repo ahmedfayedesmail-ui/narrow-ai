@@ -24,6 +24,18 @@ class CliTests(unittest.TestCase):
         self.assertEqual(tasks.limit, 25)
         self.assertTrue(tasks.json)
 
+    def test_discovery_and_proposal_cli_options(self):
+        parser = build_parser()
+        discover = parser.parse_args(["discover", "--apply"])
+        self.assertTrue(discover.apply)
+        self.assertFalse(discover.json)
+        proposal = parser.parse_args(["propose", "Fix login timeout", "--ollama", "--model", "llama3:8b"])
+        self.assertEqual(proposal.goal, "Fix login timeout")
+        self.assertTrue(proposal.ollama)
+        self.assertEqual(proposal.model, "llama3:8b")
+        drive = parser.parse_args(["drive", "--provider", "my-agent"])
+        self.assertEqual(drive.provider, "my-agent")
+
     def test_start_accepts_repeated_scope_and_acceptance_entries(self):
         parser = build_parser()
         args = parser.parse_args([
