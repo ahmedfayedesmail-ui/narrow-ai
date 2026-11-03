@@ -83,6 +83,22 @@ class WindowsJobTests(unittest.TestCase):
                     parent.wait(timeout=5)
 
 
+
+class NonWindowsJobCompatibilityTests(unittest.TestCase):
+    @unittest.skipIf(os.name == "nt", "This test covers the non-Windows Popen fallback.")
+    def test_spawn_helper_preserves_standard_popen_behavior_off_windows(self):
+        process, job = spawn_process_with_job(
+            [sys.executable, "-c", "print('narrow-child-ok')"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        stdout, stderr = process.communicate(timeout=5)
+        self.assertIsNone(job)
+        self.assertEqual(process.returncode, 0, stderr)
+        self.assertIn("narrow-child-ok", stdout)
+
+
 def _windows_process_exited(pid: int, timeout_ms: int) -> bool:
     import ctypes
     from ctypes import wintypes
