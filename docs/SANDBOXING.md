@@ -26,7 +26,7 @@ Add this object at the top level:
     "memory": "2g",
     "cpus": "2",
     "pids_limit": 256,
-    "workspace_read_only": false
+    "workspace_read_only": true
   }
 }
 
@@ -48,9 +48,11 @@ the verification command.
 - The container is removed automatically; NARROW attempts forced cleanup if
   the command times out or is interrupted.
 
-The workspace mount is writable by default because many test runners create
-temporary files, caches, or build artifacts. Set workspace_read_only to true
-only when the chosen checks do not need to write into the workspace.
+The workspace mount is read-only by default. This keeps a verification command
+from changing code or test files while it runs. The container receives a
+writable /tmp and HOME=/tmp for temporary data. If a specific build/test command
+must write into the task workspace, set workspace_read_only to false only after
+reviewing that command and its expected generated files.
 
 ## Important limits
 
