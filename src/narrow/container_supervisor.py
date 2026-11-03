@@ -79,7 +79,7 @@ def _stop_group(process: subprocess.Popen[Any]) -> None:
             raise NarrowError("Docker client process did not terminate after forced shutdown.") from exc
 
 
-def run_container_agent(
+def _run_container_agent(
     command: list[str],
     *,
     store: Store,
@@ -136,6 +136,16 @@ def run_container_agent(
     execution_dir = _private_execution_dir(store.state_dir, task_id, expected_execution)
     manifest_path = execution_dir / "policy.json"
     task_home = execution_dir / "home"
+    try:
+        task_home.mkdir(mode=0o700, exist_ok=True)
+        if task_home.is_symlink() or not task_home.is_dir():
+            raise NarrowError("Task-scoped container home is linked or not a directory.")
+        if os.name != "nt":
+            os.chmod(task_home, 0o700)
+    except NarrowError:
+        raise
+    except OSError as exc:
+        raise NarrowError("Could not prepare the private task-scoped container home.") from exc
     if (
         not isinstance(credential_lease, CredentialLease)
         or credential_lease.provider != "codex"
@@ -250,7 +260,7 @@ def run_container_agent(
         "NARROW_POLICY_MANIFEST": "/run/narrow/policy.json",
         "NARROW_TASK_ID": task_id,
         "NARROW_EXECUTION_ID": expected_execution,
-        "NARROW_CONTAINER_EVENT_SPOOL": "/home/narrow/narrow-events.jsonl",
+        "NARROW_CONTAINER_EVENT_SPOOL": "/home/narrow/.local/state/narrow/hook-events.jsonl",
         "NO_PROXY": "localhost,127.0.0.1",
         "no_proxy": "localhost,127.0.0.1",
     }
@@ -436,11 +446,6 @@ def run_container_agent(
                 cleanup_errors.append(f"hook-import:{type(exc).__name__}")
 
         try:
-            revoke_credential_lease(credential_lease)
-        except Exception as exc:
-            cleanup_errors.append(f"credential-revocation:{type(exc).__name__}")
-
-        try:
             remaining = list_execution_agent_containers("docker", task_id, expected_execution)
             if not remaining:
                 cleanup_execution_agent_networks("docker", task_id, expected_execution)
@@ -464,3 +469,34 @@ def run_container_agent(
             raise NarrowError(
                 "Docker agent execution ended but cleanup needs attention: " + ", ".join(cleanup_errors)
             )
+
+
+def run_container_agent(
+    command: list[str],
+    *,
+    store: Store,
+    credential_lease: CredentialLease,
+    task_id: str,
+    execution_id: str,
+    stdin_text: str,
+    event_callback: Callable[[dict[str, Any]], None] | None = None,
+    timeout_seconds: int = 3600,
+    output_limit: int = _DEFAULT_OUTPUT_LIMIT,
+) -> tuple[int, str]:
+    """Run one execution and revoke its exact provider lease even on preflight failure."""
+    if not isinstance(credential_lease, CredentialLease):
+        raise NarrowError("Docker agent requires a valid NARROW provider credential lease.")
+    try:
+        return _run_container_agent(
+            command,
+            store=store,
+            credential_lease=credential_lease,
+            task_id=task_id,
+            execution_id=execution_id,
+            stdin_text=stdin_text,
+            event_callback=event_callback,
+            timeout_seconds=timeout_seconds,
+            output_limit=output_limit,
+        )
+    finally:
+        revoke_credential_lease(credential_lease)
