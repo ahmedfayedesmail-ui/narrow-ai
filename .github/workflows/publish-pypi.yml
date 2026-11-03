@@ -41,6 +41,7 @@ jobs:
       - name: Verify tag and package versions match
         env:
           RELEASE_TAG: ${{ inputs.tag }}
+          PUBLISH_TARGET: ${{ inputs.target }}
         run: |
           python - <<'PY'
           import os
@@ -48,6 +49,9 @@ jobs:
           from pathlib import Path
 
           tag = os.environ["RELEASE_TAG"]
+          target = os.environ.get("PUBLISH_TARGET", "")
+          if target not in {"pypi", "testpypi"}:
+              raise SystemExit("Publish target must be pypi or testpypi")
           if not tag.startswith("v") or len(tag) < 3:
               raise SystemExit("Release tag must look like v0.5.0")
           version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
@@ -109,3 +113,35 @@ jobs:
         uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           repository-url: https://test.pypi.org/legacy/
+
+
+  verify:
+    name: Verify installation from selected index
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+
+      - name: Install the exact published version from the selected index
+        env:
+          RELEASE_TAG: ${{ inputs.tag }}
+          PUBLISH_TARGET: ${{ inputs.target }}
+        run: |
+          set -euo pipefail
+          VERSION="${RELEASE_TAG#v}"
+          if [ "$PUBLISH_TARGET" = "pypi" ]; then
+            INDEX_URL="https://pypi.org/simple/"
+          else
+            INDEX_URL="https://test.pypi.org/simple/"
+          fi
+          python -m venv "$RUNNER_TEMP/narrow-index-smoke"
+          "$RUNNER_TEMP/narrow-index-smoke/bin/python" -m pip install \
+            --no-deps --only-binary=:all: --index-url "$INDEX_URL" \
+            "narrow-ai==$VERSION"
+          "$RUNNER_TEMP/narrow-index-smoke/bin/narrow" --version
