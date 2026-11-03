@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Sequence
 
 from .core import NarrowError
+from .egress_proxy import ProxyPolicyError, read_token_file
 
 _PROVIDER = {
     "claude": ("claude", "ANTHROPIC_API_KEY"),
@@ -81,6 +82,8 @@ def build_provider_environment(
     provider: str,
     credential: str,
     inherited: dict[str, str] | None = None,
+    *,
+    proxy_token: str,
 ) -> dict[str, str]:
     """Keep only runtime allowlisted environment variables and one provider key."""
     if provider not in _PROVIDER:
@@ -95,6 +98,15 @@ def build_provider_environment(
     # Do not forward either provider key from the parent environment.
     env.pop("ANTHROPIC_API_KEY", None)
     env.pop("OPENAI_API_KEY", None)
+    if not isinstance(proxy_token, str) or not re.fullmatch(r"[A-Za-z0-9_-]{32,512}", proxy_token):
+        raise NarrowError("Mounted egress proxy capability token is invalid.")
+    proxy_url = f"http://narrow:{proxy_token}@narrow-egress-proxy:3128"
+    for key in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        env[key] = proxy_url
+    env["NO_PROXY"] = "localhost,127.0.0.1"
+    env["no_proxy"] = "localhost,127.0.0.1"
+    env.pop("ALL_PROXY", None)
+    env.pop("all_proxy", None)
     env[_PROVIDER[provider][1]] = credential
     return env
 
@@ -118,6 +130,7 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="NARROW provider credential entrypoint")
     parser.add_argument("--provider", required=True, choices=tuple(_PROVIDER))
     parser.add_argument("--credential-file", required=True, type=Path)
+    parser.add_argument("--proxy-token-file", required=True, type=Path)
     parser.add_argument("command", nargs=argparse.REMAINDER, help="provider CLI argv after --")
     return parser
 
@@ -130,8 +143,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         exec_argv = build_exec_argv(args.provider, command)
         credential = read_mounted_credential(args.credential_file)
-        child_env = build_provider_environment(args.provider, credential)
-    except NarrowError as exc:
+        proxy_token = read_token_file(args.proxy_token_file)
+        child_env = build_provider_environment(args.provider, credential, proxy_token=proxy_token)
+    except (NarrowError, ProxyPolicyError) as exc:
         print(f"NARROW agent entrypoint: {exc}", file=sys.stderr)
         return 2
     try:
