@@ -824,16 +824,77 @@ def accept_criterion(store: Store, task_id: str, index: int, evidence: str) -> N
 
 def save_check_run(store: Store, task_id: str, name: str, command: list[str], snapshot: str,
                    exit_code: int, duration_ms: int, output: str) -> None:
+    from .evidence import check_evidence_payload, sign_check_evidence
+
+    command_json = json.dumps([redact(part) for part in command])
+    output_tail = redact(output[-4000:])
+    created_at = now_iso()
     with store.connect() as db:
-        db.execute(
+        cursor = db.execute(
             """INSERT INTO check_runs(task_id,check_name,snapshot_hash,command_json,exit_code,passed,duration_ms,output_tail,created_at)
                VALUES(?,?,?,?,?,?,?,?,?)""",
-            (task_id, name, snapshot, json.dumps([redact(part) for part in command]), exit_code, int(exit_code == 0), duration_ms,
-             redact(output[-4000:]), now_iso()),
+            (task_id, name, snapshot, command_json, exit_code, int(exit_code == 0), duration_ms,
+             output_tail, created_at),
         )
+        check_run_id = int(cursor.lastrowid)
+    evidence = check_evidence_payload(
+        check_run_id=check_run_id,
+        task_id=task_id,
+        check_name=name,
+        snapshot_hash=snapshot,
+        command_json=command_json,
+        exit_code=exit_code,
+        passed=(exit_code == 0),
+        duration_ms=duration_ms,
+        output_tail=output_tail,
+        created_at=created_at,
+    )
+    signature = sign_check_evidence(store.root, evidence)
+    store.add_event(task_id, "CHECK_EVIDENCE_SIGNED", {
+        "check_run_id": check_run_id,
+        "evidence": evidence,
+        "signature": signature,
+    })
     store.add_event(task_id, "CHECK_PASSED" if exit_code == 0 else "CHECK_FAILED", {
         "check": name, "exit_code": exit_code, "snapshot_hash": snapshot, "duration_ms": duration_ms,
+        "check_run_id": check_run_id,
     })
+
+
+def verify_check_run_signature(store: Store, row: sqlite3.Row) -> bool:
+    from .evidence import check_evidence_payload, verify_check_evidence
+
+    try:
+        check_run_id = int(row["id"])
+        expected = check_evidence_payload(
+            check_run_id=check_run_id,
+            task_id=str(row["task_id"]),
+            check_name=str(row["check_name"]),
+            snapshot_hash=str(row["snapshot_hash"]),
+            command_json=str(row["command_json"]),
+            exit_code=int(row["exit_code"]),
+            passed=bool(row["passed"]),
+            duration_ms=int(row["duration_ms"]),
+            output_tail=str(row["output_tail"]),
+            created_at=str(row["created_at"]),
+        )
+        with store.connect() as db:
+            events = db.execute(
+                "SELECT payload_json FROM events WHERE task_id=? AND event_type='CHECK_EVIDENCE_SIGNED' ORDER BY id DESC",
+                (row["task_id"],),
+            ).fetchall()
+        for event in events:
+            payload = json.loads(event["payload_json"])
+            if payload.get("check_run_id") != check_run_id:
+                continue
+            recorded = payload.get("evidence")
+            signature = payload.get("signature")
+            if recorded != expected:
+                return False
+            return verify_check_evidence(store.root, expected, signature)
+    except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError):
+        return False
+    return False
 
 
 def finish_task(store: Store, task_id: str) -> tuple[bool, list[str]]:
@@ -906,6 +967,8 @@ def finish_task(store: Store, task_id: str) -> tuple[bool, list[str]]:
         row = latest_by_name.get(name)
         if row is None:
             problems.append(f"Verification check has not been run: {name}")
+        elif not verify_check_run_signature(store, row):
+            problems.append(f"Verification evidence signature is missing or invalid for check '{name}'; rerun it.")
         elif not row["passed"]:
             problems.append(f"Verification check failed: {name}")
         else:
