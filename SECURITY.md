@@ -2,6 +2,8 @@
 
 Please do not report exploitable vulnerabilities in public issues.
 
-Until a dedicated security contact is configured, report concerns privately to the repository owner through GitHub's private vulnerability reporting feature when available. Include the affected version, impact, reproduction steps, and any suggested mitigation. Do not include secrets or personal data in the report.
+Report security concerns privately through GitHub's private vulnerability reporting feature when available. Include the affected version, impact, reproduction steps, and suggested mitigation. Do not include secrets or personal data in the report.
 
-NARROW is alpha software. The v0.1 isolated Git-copy supervisor is not an operating-system sandbox and must not be used for unattended execution of untrusted agents, repositories, or verification commands. Agent and check processes retain the current user's permissions.
+NARROW is alpha software. The isolated Git-copy supervisor is not an operating-system sandbox. Agent and check processes inherit the invoking user's permissions. Do not use unattended execution with untrusted agents, repositories, prompts, hooks, plugins, or verification commands. Use a restricted disposable container or VM when stronger isolation is required.
+
+Security-sensitive behavior is release-blocking. Please include a focused regression test with any proposed fix when possible.
