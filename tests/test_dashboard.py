@@ -137,9 +137,12 @@ class DashboardTests(unittest.TestCase):
         html = body.decode("utf-8")
         self.assertIn("/assets/app.js", html)
         self.assertIn("/assets/app.css", html)
-        self.assertIn("narrow.dashboard.token", html)
-        self.assertIn("X-NARROW-Token", html)
         self.assertNotIn("https://", html)
+        status, _, asset_body = self.request("GET", "/assets/app.js")
+        self.assertEqual(status, 200)
+        script = asset_body.decode("utf-8")
+        self.assertIn("narrow.dashboard.token", script)
+        self.assertIn("X-NARROW-Token", script)
 
     def test_task_detail_never_returns_check_output_or_note_payloads(self):
         detail = task_detail(self.store, self.task["id"])
