@@ -96,11 +96,17 @@ class WindowsJob:
         kernel32.SetInformationJobObject.restype = wintypes.BOOL
         kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
         kernel32.CloseHandle.restype = wintypes.BOOL
+        kernel32.SetHandleInformation.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD]
+        kernel32.SetHandleInformation.restype = wintypes.BOOL
 
         handle = kernel32.CreateJobObjectW(None, None)
         if not handle:
             raise NarrowError(f"Could not create Windows Job Object (WinError {ctypes.get_last_error()}).")
         try:
+            # Explicitly clear inheritance, even though the default security
+            # attributes already create a non-inheritable handle.
+            if not kernel32.SetHandleInformation(handle, 0x00000001, 0):
+                raise NarrowError(f"Could not make Job Object handle non-inheritable (WinError {ctypes.get_last_error()}).")
             limits = _ExtendedLimitInformation()
             limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
             if not kernel32.SetInformationJobObject(
@@ -125,12 +131,27 @@ class WindowsJob:
             raise NarrowError("The child process exited before Job Object assignment.")
         self._kernel32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
         self._kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+        self._kernel32.IsProcessInJob.argtypes = [wintypes.HANDLE, wintypes.HANDLE, ctypes.POINTER(wintypes.BOOL)]
+        self._kernel32.IsProcessInJob.restype = wintypes.BOOL
         process_handle = wintypes.HANDLE(int(process._handle))  # type: ignore[attr-defined]
         if not self._kernel32.AssignProcessToJobObject(self._handle, process_handle):
             raise NarrowError(
                 f"Could not assign suspended child to Windows Job Object "
                 f"(WinError {ctypes.get_last_error()})."
             )
+        is_member = wintypes.BOOL()
+        if not self._kernel32.IsProcessInJob(process_handle, self._handle, ctypes.byref(is_member)):
+            raise NarrowError(f"Could not verify Job Object membership (WinError {ctypes.get_last_error()}).")
+        if not is_member.value:
+            raise NarrowError("Windows reported that the suspended child is not a member of its assigned Job Object.")
+
+    def terminate(self, exit_code: int = 1) -> None:
+        if not self._handle:
+            return
+        self._kernel32.TerminateJobObject.argtypes = [wintypes.HANDLE, wintypes.UINT]
+        self._kernel32.TerminateJobObject.restype = wintypes.BOOL
+        if not self._kernel32.TerminateJobObject(self._handle, exit_code):
+            raise OSError(ctypes.get_last_error(), "TerminateJobObject failed")
 
     def close(self) -> None:
         handle, self._handle = self._handle, None
@@ -236,6 +257,10 @@ def spawn_process_with_job(
     except Exception:
         # Closing the Job kills the child if assignment succeeded. If it did
         # not, terminate the suspended direct child explicitly.
+        try:
+            job.terminate()
+        except Exception:
+            pass
         try:
             job.close()
         except Exception:
