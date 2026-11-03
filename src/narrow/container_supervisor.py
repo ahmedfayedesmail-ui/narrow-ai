@@ -10,10 +10,12 @@ import time
 from pathlib import Path
 from typing import Any, Callable
 
-from .container_lifecycle import agent_container_labels, cleanup_execution_agent_containers
-from .core import NarrowError
+from .container_lifecycle import agent_container_labels, cleanup_execution_agent_containers, list_execution_agent_networks
+from .core import NarrowError, Store, task_workspace
 from .policy_manifest import _validate_execution_id
 from .agent_runtime import normalize_provider_argv, validate_agent_image
+from .credential_broker import CredentialLease, validate_credential_lease
+from .policy_manifest import read_policy_manifest
 
 _TASK_ID = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 _CONTAINER_ID = re.compile(r"^[0-9a-f]{12,64}$")
@@ -80,7 +82,8 @@ def _stop_group(process: subprocess.Popen[Any]) -> None:
 def run_container_agent(
     command: list[str],
     *,
-    state_dir: Path,
+    store: Store,
+    credential_lease: CredentialLease,
     task_id: str,
     execution_id: str,
     stdin_text: str,
@@ -102,6 +105,23 @@ def run_container_agent(
     if not isinstance(task_id, str) or not _TASK_ID.fullmatch(task_id):
         raise NarrowError("Invalid task ID for Docker supervisor.")
     expected_execution = _validate_execution_id(execution_id)
+    if not isinstance(store, Store) or store.state_dir.name != ".narrow":
+        raise NarrowError("Docker supervisor requires the active NARROW task store.")
+    store._check_state_paths()
+    task = store.get_task(task_id)
+    workspace = task_workspace(task)
+    execution_dir = _private_execution_dir(store.state_dir, task_id, expected_execution)
+    manifest_path = execution_dir / "policy.json"
+    task_home = execution_dir / "home"
+    if (
+        not isinstance(credential_lease, CredentialLease)
+        or credential_lease.provider != "codex"
+        or credential_lease.task_id != task_id
+        or credential_lease.execution_id != expected_execution
+    ):
+        raise NarrowError("Docker supervisor requires the exact Codex credential lease for this execution.")
+    secret_path = validate_credential_lease(credential_lease)
+    read_policy_manifest(manifest_path, expected_task_id=task_id, expected_execution_id=expected_execution)
     expected_network = f"narrow-agent-{task_id[:32]}-{expected_execution.replace('-', '')[:12]}"
     if "--network" not in command or command[command.index("--network") + 1:command.index("--network") + 2] != [expected_network]:
         raise NarrowError("Docker agent command must use the exact task/execution internal network.")
@@ -145,6 +165,28 @@ def run_container_agent(
     }
     if set(mount_targets) != set(expected_mount_modes):
         raise NarrowError("Docker agent must mount only its workspace, task home, policy manifest, and provider credential.")
+    expected_sources = {
+        "/workspace": workspace,
+        "/home/narrow": task_home,
+        "/run/narrow/policy.json": manifest_path,
+        "/run/secrets/provider-api-key": secret_path,
+    }
+    for target, expected_source in expected_sources.items():
+        try:
+            info = expected_source.lstat()
+            if expected_source.is_symlink():
+                raise NarrowError("An expected agent mount source is a symbolic link.")
+            if target in {"/workspace", "/home/narrow"}:
+                if not expected_source.is_dir():
+                    raise NarrowError("Agent workspace and task home mount sources must be directories.")
+            elif not expected_source.is_file() or info.st_nlink != 1:
+                raise NarrowError("Agent policy and credential mount sources must be regular unlinked files.")
+            if Path(mount_targets[target][0]).resolve(strict=True) != expected_source.resolve(strict=True):
+                raise NarrowError("A Docker bind mount does not point to the exact task-scoped source.")
+        except NarrowError:
+            raise
+        except OSError as exc:
+            raise NarrowError("An expected task-scoped Docker mount source is unavailable.") from exc
     for target, readonly in expected_mount_modes.items():
         if mount_targets[target][1] is not readonly:
             raise NarrowError("Docker policy and credential mounts must be read-only; workspace and task home must be writable.")
@@ -153,14 +195,35 @@ def run_container_agent(
         "NO_PROXY", "no_proxy", "NARROW_POLICY_MANIFEST", "NARROW_TASK_ID",
         "NARROW_EXECUTION_ID", "NARROW_CONTAINER_EVENT_SPOOL",
     }
-    env_names = [
-        item.split("=", 1)[0]
+    env_items = [
+        command[index + 1]
         for index, value in enumerate(command[:-1])
         if value == "--env"
-        for item in [command[index + 1]]
     ]
-    if any(name not in allowed_env for name in env_names) or len(env_names) != len(set(env_names)):
+    if any("=" not in item for item in env_items):
+        raise NarrowError("Docker agent environment entries must use explicit KEY=value pairs.")
+    env_values = dict(item.split("=", 1) for item in env_items)
+    if any(name not in allowed_env for name in env_values) or len(env_items) != len(env_values):
         raise NarrowError("Docker agent environment contains an unapproved or duplicate variable.")
+    expected_env = {
+        "HOME": "/home/narrow",
+        "NARROW_POLICY_MANIFEST": "/run/narrow/policy.json",
+        "NARROW_TASK_ID": task_id,
+        "NARROW_EXECUTION_ID": expected_execution,
+        "NARROW_CONTAINER_EVENT_SPOOL": "/home/narrow/narrow-events.jsonl",
+        "NO_PROXY": "localhost,127.0.0.1",
+        "no_proxy": "localhost,127.0.0.1",
+    }
+    if any(env_values.get(key) != value for key, value in expected_env.items()):
+        raise NarrowError("Docker agent environment does not match the task-scoped runtime contract.")
+    proxy = env_values.get("HTTP_PROXY", "")
+    if (
+        proxy != env_values.get("HTTPS_PROXY")
+        or proxy != env_values.get("http_proxy")
+        or proxy != env_values.get("https_proxy")
+        or not re.fullmatch(r"http://narrow:[A-Za-z0-9_-]{32,128}@narrow-egress-proxy:3128", proxy)
+    ):
+        raise NarrowError("Docker agent must use the authenticated per-execution NARROW egress proxy.")
     if "--entrypoint" not in command or command[command.index("--entrypoint") + 1:command.index("--entrypoint") + 2] != ["python"]:
         raise NarrowError("Docker agent must start through the NARROW in-container entrypoint.")
     entrypoint_index = command.index("--entrypoint")
@@ -173,6 +236,17 @@ def run_container_agent(
     ]:
         raise NarrowError("Docker agent must invoke the constrained Codex credential entrypoint.")
     normalize_provider_argv("codex", command[entrypoint_index + 10:])
+    if "--workdir" not in command or command[command.index("--workdir") + 1:command.index("--workdir") + 2] != ["/workspace"]:
+        raise NarrowError("Docker agent working directory must be the virtual /workspace.")
+    if "--user" not in command or not re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", command[command.index("--user") + 1]):
+        raise NarrowError("Docker agent must run as an explicit non-root user and group.")
+    if "--rm" not in command or "--interactive" not in command:
+        raise NarrowError("Docker agent must use automatic container removal and stdin forwarding.")
+    if "--tmpfs" not in command or command[command.index("--tmpfs") + 1:command.index("--tmpfs") + 2] != ["/tmp:rw,noexec,nosuid,nodev,size=256m,mode=1777"]:
+        raise NarrowError("Docker agent must use the bounded no-exec private tmpfs profile.")
+    networks = list_execution_agent_networks("docker", task_id, expected_execution)
+    if len(networks) != 1 or networks[0].name != expected_network:
+        raise NarrowError("The exact task/execution internal Docker network is not present and verified.")
     if not isinstance(stdin_text, str) or "\x00" in stdin_text:
         raise NarrowError("Docker agent prompt must be text without NUL characters.")
     if not isinstance(timeout_seconds, int) or isinstance(timeout_seconds, bool) or not 1 <= timeout_seconds <= 24 * 60 * 60:
