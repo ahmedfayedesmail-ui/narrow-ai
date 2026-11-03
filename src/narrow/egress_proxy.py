@@ -249,6 +249,12 @@ def _extract_client_hello_sni(message: bytes) -> str:
         if cursor + 4 > extension_end:
             raise ProxyPolicyError("TLS ClientHello extension header is truncated.")
         extension_type = int.from_bytes(body[cursor:cursor + 2], "big")
+        if extension_type == 0xFE0D:
+            # An ECH ClientHello carries an encrypted inner ClientHello. The
+            # visible outer SNI cannot prove which hostname the server will
+            # ultimately route, so this proxy rejects ECH rather than trusting
+            # a potentially misleading public_name.
+            raise ProxyPolicyError("TLS Encrypted ClientHello is not supported by the egress policy.")
         extension_length = int.from_bytes(body[cursor + 2:cursor + 4], "big")
         cursor += 4
         if cursor + extension_length > extension_end:
