@@ -266,11 +266,12 @@ It emits only the four intended mounts, the internal execution network,
 execution ownership labels, a minimal environment, bounded resources, the
 in-container credential entrypoint, and the normalized Codex command.
 
-This remains launch planning only. The caller must still create and verify the
-internal network, start a separately controlled proxy sidecar with the same
-per-execution capability, confirm the proxy is the only path to external
-network access, and then pass this argv to the host supervisor. The builder
-does not start containers or prove that the proxy sidecar exists.
+The builder remains a command planner; the opt-in Codex execution wrapper
+orchestrates the surrounding runtime. It provisions and verifies the separate
+proxy sidecar and both networks before passing the agent argv to the host
+supervisor. This orchestration has unit-level coverage and an opt-in real-Docker
+acceptance job; it must not be called Beta-ready until that job passes on the
+exact PR head and an authenticated Codex session is demonstrated.
 ## Egress sidecar resource ownership and teardown
 
 The lifecycle layer now distinguishes the agent container from its dedicated
