@@ -136,10 +136,14 @@ def _valid_repo_pattern(value: Any, root: Path, *, require_existing: bool) -> st
         prefix = pattern.split("*", 1)[0].rstrip("/")
         if not prefix or prefix.startswith("."):
             return None
-        candidate = root / prefix
+        candidate = root
         try:
+            for component in Path(prefix).parts:
+                candidate = candidate / component
+                if candidate.is_symlink() or not candidate.exists():
+                    return None
             resolved = candidate.resolve(strict=True)
-            if not resolved.is_relative_to(root) or candidate.is_symlink():
+            if not resolved.is_relative_to(root):
                 return None
         except (OSError, RuntimeError):
             return None
