@@ -47,7 +47,7 @@ python -m pip install .
 narrow --version
 ```
 
-The v0.5.0 Alpha is currently distributed as source and a repository archive; it is not yet a PyPI package or a tagged GitHub Release.
+The v0.5.0 Alpha is currently distributed as source: clone this repository or use GitHub's **Code → Download ZIP** for the exact branch snapshot. There is no PyPI package or tagged GitHub Release yet.
 
 For development and tests:
 
@@ -205,8 +205,9 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 ## Current validation
 
 - The local unit suite covers the CLI, task creation, path/snapshot gates, provider adapters with fakes, dashboard, bounded repair/handoff, and task locks.
-- GitHub Actions currently validates Ubuntu/Python 3.11–3.14 and Windows task-lock/CLI smoke behavior. The macOS and package-build jobs are being added in this readiness update; see the CI run before treating them as passed.
-- The public deterministic demo exercises successful repair and bounded failure with a fake agent. It is not an authenticated provider test.
+- GitHub Actions run [#41642840892](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41642840892) passed on the reviewed PR snapshot: Ubuntu/Python 3.11–3.14 full suites and demos, macOS/Python 3.13 full suite and demos, Windows Server 2025/Python 3.13 lock tests and demos, plus wheel/sdist build and clean wheel installation.
+- The run also created, extracted, and tested a source archive from the exact checked-out commit; the tested archive is attached to the workflow run as an artifact. GitHub's Download ZIP is the current-source download route.
+- The deterministic demo exercises successful repair and bounded failure with a fake agent. It is not an authenticated provider test.
 - Authenticated Claude/Codex end-to-end sessions, provider-version support guarantees, Windows inherited-handle crash lifetime, full OS-sandbox escape testing, and independent security review remain open gates.
 - Android/Termux is not a supported or validated platform claim.
 
