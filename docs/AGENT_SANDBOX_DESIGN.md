@@ -216,3 +216,24 @@ per-execution network, reconcile after an abrupt host crash, or connect to the
 normal `narrow drive` loop. The caller must provision the task-scoped home
 directory before invoking it. This is a supervision primitive, not a complete
 agent runtime or an enabled end-to-end sandbox.
+
+
+## Execution-finalization safeguards
+
+The POSIX Docker supervisor now imports the canonical task-home hook spool
+(`.local/state/narrow/hook-events.jsonl`) after container cleanup. Imported
+records are tagged as untrusted agent telemetry and remain diagnostic only.
+The supervisor then revokes the exact task/execution credential lease and
+removes the execution's internal network only after confirming no matching
+agent container remains. Cleanup failures are surfaced to the caller rather
+than silently reported as a successful run.
+
+Credential revocation is wrapped around the supervisor preflight as well, so
+an invalid image/command, missing network, or other pre-launch validation
+failure also revokes the selected lease. The runtime spool path now matches
+the host importer's canonical path.
+
+This still does not provide abrupt-host-crash recovery: a SIGKILL or host
+failure can bypass Python finalizers. Durable recovery reconciliation and a
+separately managed egress proxy are still required before enabling the agent
+runtime through the standard drive workflow.
