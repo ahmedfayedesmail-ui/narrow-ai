@@ -1,4 +1,4 @@
-name: NARROW v0.5.1 Alpha checks
+name: NARROW v0.6.0 Beta checks
 
 on:
   push:
