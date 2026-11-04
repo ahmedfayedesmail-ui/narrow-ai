@@ -1,91 +1,20 @@
-'on':
+name: Archived v0.5.0 release workflow
+
+on:
   workflow_dispatch:
     inputs:
       authorization:
-        description: Type PUBLISH NARROW V0.5.0 ALPHA to authorize the release
+        description: This historical release workflow is permanently retired.
         required: true
         type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  publish-v050:
-    if: ${{ github.actor == 'ahmedfayedesmail-ui' && inputs.authorization == 'PUBLISH NARROW V0.5.0 ALPHA' }}
+  retired:
+    if: false
     runs-on: ubuntu-latest
-    timeout-minutes: 5
     steps:
-      - name: Check out the current main branch
-        uses: actions/checkout@v7.0.1
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Validate the exact release target and ensure the tag is unused
-        id: target
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          REPO='ahmedfayedesmail-ui/narrow-ai'
-          TAG='v0.5.0'
-          VERSION="$(python -c 'import tomllib; print(tomllib.load(open("pyproject.toml", "rb"))["project"]["version"])')"
-          test "$VERSION" = '0.5.0'
-          git fetch origin main --quiet
-          TARGET="$(git rev-parse origin/main)"
-          CHECKED_OUT="$(git rev-parse HEAD)"
-          test "$TARGET" = "$CHECKED_OUT"
-          if git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null 2>&1; then
-            echo "Refusing to overwrite existing tag $TAG" >&2
-            exit 1
-          fi
-          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
-            echo "Refusing to overwrite existing release $TAG" >&2
-            exit 1
-          fi
-          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
-
-      - name: Create the prerelease and version tag
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TARGET_SHA: ${{ steps.target.outputs.target }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          cat > "$RUNNER_TEMP/release-notes.md" <<'NOTES'
-          NARROW v0.5.0 Alpha
-          
-          NARROW is a local-first task continuity and completion supervisor for AI coding agents.
-          
-          Highlights
-          - Task-scoped execution leases serialize drive, run/resume, verification, and finish operations on the same task.
-          - Native Claude Code and OpenAI Codex CLI adapters, plus a generic command adapter with clearly documented different security boundaries.
-          - Explicit task contracts, allowed/denied paths, local SQLite continuity records, compact handoffs, bounded repair attempts, and snapshot-bound verification.
-          - Human review and explicit acceptance remain required; agent claims and passing tests do not automatically complete a task.
-          - Local read-only Control Center bound to loopback.
-          - Public source, tests, architecture, threat model, safety model, and human review guidance.
-          
-          Validation
-          The release candidate passed all 7 GitHub Actions jobs on Ubuntu/Python 3.11–3.14, macOS/Python 3.13, and Windows Server 2025/Python 3.13, including deterministic repaired and bounded-failure demos and wheel/sdist build plus clean wheel installation. See docs/QA-RESULTS-v0.5.0.md and the successful main workflow at https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41645949340.
-          
-          Important safety limitations
-          This is Alpha software, not a universal OS sandbox, endpoint security product, or correctness guarantee. Generic adapters, direct run/resume commands, and configured verification programs retain the invoking user's OS permissions unless separately restricted. Authenticated live Claude/Codex end-to-end validation, Windows inherited-handle crash-lifetime validation, detached process-tree adversarial testing, complete sandbox escape assessment, Android/Termux support, and independent security review remain open. Use low-risk or disposable repositories, inspect every changed file including untracked files, review verification commands, and use a separately restricted VM/container for untrusted code.
-          
-          Install from source:
-          git clone https://github.com/ahmedfayedesmail-ui/narrow-ai.git
-          cd narrow-ai
-          python -m pip install .
-          narrow --version
-          
-          Requirements: Python 3.11+ and Git. Install/authenticate provider CLIs separately.
-          
-          License: MIT.
-          NOTES
-          gh release create v0.5.0 \
-            --repo ahmedfayedesmail-ui/narrow-ai \
-            --title 'NARROW v0.5.0 Alpha' \
-            --notes-file "$RUNNER_TEMP/release-notes.md" \
-            --prerelease \
-            --target "$TARGET_SHA"
-
+      - name: Explain retirement
+        run: echo "This v0.5.0 publishing workflow is retired. Use the current Beta release process instead."
