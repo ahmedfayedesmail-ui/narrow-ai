@@ -2,7 +2,7 @@
 
 ## Result
 
-The source package passes its current local automated test suite. This is an **alpha engineering check**, not an independent security assessment or a production-readiness claim.
+The source package passes its current local automated test suite. This is a **historical pre-Beta engineering check**, not an independent security assessment or a production-readiness claim.
 
 ## Environment tested
 
@@ -32,4 +32,4 @@ Latest local test result: **41 tests passed**. The tests cover clean-checkout en
 
 ## Release guidance
 
-Keep this release marked **Alpha**. Use only with trusted repositories, trusted agent CLIs, and reviewed verification commands. Keep provider approval controls enabled. Do not run unattended or against untrusted inputs until the isolated runner is replaced or supplemented by a separately tested OS-level sandbox.
+Treat this as a legacy pre-Beta release snapshot. Use only with trusted repositories, trusted agent CLIs, and reviewed verification commands. Keep provider approval controls enabled. Do not run unattended or against untrusted inputs until the isolated runner is replaced or supplemented by a separately tested OS-level sandbox.
