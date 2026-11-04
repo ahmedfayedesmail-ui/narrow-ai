@@ -15,9 +15,9 @@ It works with the coding agents you already have. NARROW itself does not require
 - Project discovery and test-command proposals are bounded and read-only; discovered checks are not executed automatically.
 - Plain-language task proposals require human review before task creation or configuration changes.
 - Optional Docker/Podman verification is network-disabled by default and resource-limited.
-- An opt-in POSIX/local-Docker Codex container runtime uses a separate proxy sidecar, execution-scoped networks, digest-pinned images, mounted short-lived credentials, and supervised cleanup.
+- An opt-in POSIX/local-Docker Claude/Codex container runtime uses a separate proxy sidecar, execution-scoped networks, digest-pinned images, mounted short-lived credentials, and supervised cleanup.
 
-The Codex container profile remains experimental and opt-in. Its real Docker proxy-only egress acceptance job passed on merged-main CI run [#41779875499](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41779875499). A live authenticated Codex account run is not required for the Beta label by the project owner's decision, and no live run is claimed.
+The Claude/Codex container profile remains experimental and opt-in. Its real Docker proxy-only egress acceptance job passed on merged-main CI run [#41779875499](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41779875499). A live authenticated Codex account run is not required for the Beta label by the project owner's decision, and no live run is claimed.
 
 ## What's new in v0.5.0
 
@@ -301,7 +301,7 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 
 ## Current validation
 
-- PR #16 and PR #17 are merged into `main`. The Beta source includes discovery, human-reviewed task proposals, optional containerized verification, and the opt-in Codex container/proxy runtime.
+- PR #16 and PR #17 are merged into `main`. The Beta source includes discovery, human-reviewed task proposals, optional containerized verification, and the opt-in Claude/Codex container/proxy runtime.
 - The complete merged-main workflow [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003) passed all nine jobs on commit `979198b`: Ubuntu/Python 3.11–3.14 unit tests, demos and CLI checks; macOS full suite and demos; Windows repaired/blocked demo and task-lock jobs; Docker image build and real proxy-only egress acceptance; and wheel/source-distribution build plus clean wheel installation.
 - CodeQL also passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
 - No authenticated live Codex account session was performed. The project owner has explicitly decided that such a session is not required for the Beta label; no live provider execution is claimed.
