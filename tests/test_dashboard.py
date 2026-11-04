@@ -12,6 +12,7 @@ from unittest.mock import patch
 
 from narrow.core import Store, create_task, init_project, record_note
 from narrow.dashboard import DashboardServer, task_detail, task_diff
+from narrow.review_gate import build_review_report
 
 
 def git(root: Path, *args: str) -> str:
@@ -143,6 +144,18 @@ class DashboardTests(unittest.TestCase):
         script = asset_body.decode("utf-8")
         self.assertIn("narrow.dashboard.token", script)
         self.assertIn("X-NARROW-Token", script)
+
+    def test_dashboard_review_endpoint_exposes_read_only_gate_without_auto_approval(self):
+        before_status = self.store.get_task(self.task["id"])["status"]
+        status, _, body = self.request("GET", f"/api/v1/tasks/{self.task['id']}/review")
+        self.assertEqual(status, 200)
+        report = json.loads(body)
+        self.assertEqual(report["schema"], "narrow.review-report.v1")
+        self.assertEqual(report["decision"], "NEEDS_VERIFICATION")
+        self.assertFalse(report["automatic_approval"])
+        self.assertFalse(report["state_mutated"])
+        self.assertFalse(report["commands_executed"])
+        self.assertEqual(self.store.get_task(self.task["id"])["status"], before_status)
 
     def test_dashboard_diff_endpoint_shows_tracked_and_untracked_text_changes(self):
         (Path(self.task["worktree"]) / "src" / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
