@@ -1,4 +1,4 @@
-# NARROW v0.5.1 Alpha — Release Notes
+# NARROW v0.5.1 legacy pre-Beta package — Release Notes
 
 Release date: 2026-11-03
 
@@ -17,4 +17,4 @@ The task-scoped execution lease, provider adapters, bounded repair/handoff, loca
 
 ## Safety and validation limitations
 
-NARROW remains Alpha software. CI and package-install tests do not replace authenticated Claude Code/Codex CLI end-to-end testing, Windows crash-lifetime and detached-process adversarial testing, full OS sandbox escape assessment, or independent security review. A Git worktree is not an OS sandbox. Review verification commands and use a separately restricted VM/container for untrusted code.
+The v0.5.1 package is a legacy pre-Beta distribution; the current GitHub `main` source is the v0.6.0b1 Beta preview. CI and package-install tests do not replace authenticated Claude Code/Codex CLI end-to-end testing, Windows crash-lifetime and detached-process adversarial testing, full OS sandbox escape assessment, or independent security review. A Git worktree is not an OS sandbox. Review verification commands and use a separately restricted VM/container for untrusted code.
