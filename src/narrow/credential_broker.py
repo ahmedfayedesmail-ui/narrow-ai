@@ -332,7 +332,10 @@ def revoke_execution_credential_files(
         info = credentials.lstat()
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
             raise NarrowError("Execution credentials path is linked or not a directory.")
-        removed = 0
+        # Preflight the complete directory before deleting any secret. A
+        # late unexpected entry must not leave a partially revoked execution
+        # while the caller believes recovery was refused.
+        candidates: list[tuple[Path, int, int, int]] = []
         for entry in credentials.iterdir():
             match = re.fullmatch(r"(?:claude|codex)-[0-9a-f]{32}\.secret", entry.name)
             if not match:
@@ -347,6 +350,22 @@ def revoke_execution_credential_files(
                 or metadata.st_size > _MAX_SECRET_BYTES
             ):
                 raise NarrowError("An execution credential file is linked, oversized, or has unsafe permissions.")
+            candidates.append((entry, metadata.st_dev, metadata.st_ino, metadata.st_size))
+
+        removed = 0
+        for entry, device, inode, size in candidates:
+            # Revalidate the exact directory entry immediately before unlink.
+            metadata = entry.lstat()
+            if (
+                stat.S_ISLNK(metadata.st_mode)
+                or not stat.S_ISREG(metadata.st_mode)
+                or metadata.st_nlink != 1
+                or stat.S_IMODE(metadata.st_mode) != 0o400
+                or metadata.st_size != size
+                or metadata.st_dev != device
+                or metadata.st_ino != inode
+            ):
+                raise NarrowError("An execution credential file changed during recovery; refusing further cleanup.")
             entry.unlink()
             removed += 1
         return removed
