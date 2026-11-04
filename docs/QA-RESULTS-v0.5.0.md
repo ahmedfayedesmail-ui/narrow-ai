@@ -1,4 +1,4 @@
-# NARROW v0.5.0 Alpha — QA Status
+# NARROW v0.5.0 legacy pre-Beta — QA Status
 
 Date: 2026-11-03
 Release tag snapshot (`v0.5.0`): `5eb6a469c5c0317e2b9528dc2dcbfafd0fae5228`
@@ -35,4 +35,4 @@ The published release-tag commit passed all eight GitHub Actions jobs in run [#4
 - Independent security review.
 - Android/Termux support.
 
-NARROW's execution lease is process coordination, not a machine-level sandbox. Passing CI does not prove semantic correctness or establish production security. Until the remaining gates are completed, use this Alpha on low-risk or disposable repositories with reviewed commands and manual diff acceptance.
+NARROW's execution lease is process coordination, not a machine-level sandbox. Passing CI does not prove semantic correctness or establish production security. This document is a historical v0.5.0 pre-Beta QA snapshot; use the current Beta source and retain manual diff acceptance. For untrusted repositories, configure a separate disposable OS-level sandbox.
