@@ -303,9 +303,9 @@ def apply_human_review_decision(
     """Apply one explicit human review decision under the task execution lock."""
     from .locks import task_execution_lock
 
-    if decision not in {"accept_criterion", "approve", "request_changes", "reject"}:
+    if not isinstance(decision, str) or decision not in {"accept_criterion", "approve", "request_changes", "reject"}:
         raise NarrowError("Review decision must be accept_criterion, approve, request_changes, or reject.")
-    if not isinstance(reason, str) or len(reason) > 4000 or "\\x00" in reason:
+    if not isinstance(reason, str) or len(reason) > 4000 or "\x00" in reason:
         raise NarrowError("Review reason must be at most 4,000 characters and contain no NUL characters.")
     if not isinstance(acknowledge_risks, bool):
         raise NarrowError("acknowledge_risks must be a boolean.")
