@@ -1,4 +1,4 @@
-# NARROW v0.2.0 Alpha (historical)
+# NARROW v0.2.0 legacy pre-Beta release (historical)
 
 NARROW v0.2.0 adds native Claude Code and Codex CLI support to the local-first scope, memory, and completion engine.
 
@@ -24,6 +24,6 @@ The `.narrow` state schema remains at version 1. Existing tasks and local journa
 
 ## Safety and known limits
 
-v0.2.0 remained Alpha at publication. The Git task copy is not an OS sandbox. Claude's hook covers only direct file-write/edit tools; Codex has no NARROW-native PreToolUse hook yet. Shell commands and MCP tools can perform external effects with the invoking user's permissions. NARROW does not commit, merge, push, deploy, or auto-accept tasks.
+v0.2.0 was a legacy pre-Beta release. The Git task copy is not an OS sandbox. Claude's hook covers only direct file-write/edit tools; Codex has no NARROW-native PreToolUse hook yet. Shell commands and MCP tools can perform external effects with the invoking user's permissions. NARROW does not commit, merge, push, deploy, or auto-accept tasks.
 
 A local passing test suite is not a substitute for provider end-to-end tests, cross-platform testing, and independent security review. See [PROVIDERS.md](PROVIDERS.md), [SAFETY_MODEL.md](SAFETY_MODEL.md), and [THREAT_MODEL.md](THREAT_MODEL.md).
