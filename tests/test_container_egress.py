@@ -99,12 +99,6 @@ class ContainerEgressTests(unittest.TestCase):
                     "Destination": "/run/secrets/proxy-token",
                     "RW": False,
                 },
-                {
-                    "Type": "tmpfs",
-                    "Source": "tmpfs",
-                    "Destination": "/tmp",
-                    "RW": True,
-                },
             ],
             "NetworkSettings": {
                 "Networks": {
