@@ -1,4 +1,4 @@
-# NARROW Architecture (v0.5.0 Alpha)
+# NARROW Architecture — v0.5.0 legacy baseline (pre-Beta)
 
 ## Product model
 
@@ -86,7 +86,7 @@ The engine hashes the changed workspace snapshot before and after a check. A che
 `finish` checks:
 
 1. No denied or out-of-scope paths remain.
-2. The task workspace is still on the task branch and baseline `HEAD` (agent-created commits are not accepted in the current alpha).
+2. The task workspace is still on the task branch and baseline `HEAD` (agent-created commits were not accepted in the v0.5.0 baseline).
 3. The original checkout is still unchanged and clean.
 4. The authoritative task brief is intact and no unsafe filesystem links remain.
 5. Every configured check passed against the current workspace snapshot.
