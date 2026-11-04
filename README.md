@@ -99,6 +99,20 @@ The contract proposal does not silently approve scope. NARROW prints the propose
 6. **Verify and repair.** Explicitly configured checks run under a bounded repair budget. A failure can trigger a limited repair attempt; repeated failure becomes a blocked/review state.
 7. **Require human acceptance.** NARROW does not equate an agent saying “done” or a green test with semantic correctness. A human reviews the diff and confirms acceptance criteria before `finish` can mark the task verified.
 
+## One-command project setup
+
+From the root of a Git repository:
+
+```bash
+narrow setup
+narrow setup --apply
+narrow security
+```
+
+`narrow setup` detects a web, Python, data, or general profile and prints a read-only plan. The explicit `--apply` step asks before saving the profile and adding only missing verification suggestions; it never runs those commands. Existing checks are not overwritten. The profile gives future `narrow start --auto-contract` calls a conservative starting allowlist.
+
+`narrow security` explains which guarantees come from workflow orchestration and which require a real execution boundary. Profiles do not enable Docker, restrict agent permissions, or turn a Git copy into a sandbox.
+
 ## Install
 
 Requirements: Python 3.11+, Git, and a supported local agent CLI for native provider execution.

@@ -44,6 +44,8 @@ jobs:
           PYTHONPATH: src
         run: |
           python -m narrow --version
+          python -m narrow setup --help
+          python -m narrow security --help
           python -m narrow drive --help
           python -m narrow verify --help
           python -m narrow finish --help

@@ -32,6 +32,12 @@ class CliTests(unittest.TestCase):
 
     def test_discovery_and_proposal_cli_options(self):
         parser = build_parser()
+        setup = parser.parse_args(["setup", "--profile", "data", "--apply"])
+        self.assertEqual(setup.profile, "data")
+        self.assertTrue(setup.apply)
+        self.assertFalse(setup.json)
+        security = parser.parse_args(["security", "--json"])
+        self.assertTrue(security.json)
         discover = parser.parse_args(["discover", "--apply"])
         self.assertTrue(discover.apply)
         self.assertFalse(discover.json)

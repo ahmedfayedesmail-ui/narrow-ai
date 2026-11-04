@@ -400,6 +400,7 @@ def default_config() -> dict[str, Any]:
         "stop_on_scope_violation": True,
         "checks": {},
         "agents": {},
+        "project_profile": None,
         "max_repair_attempts": 3,
         # Shell network access in native Claude sessions is deny-by-default.
         # Add only package registries or APIs required by this repository.
@@ -436,6 +437,14 @@ def load_config(root: Path) -> dict[str, Any]:
             config[key] = {}
         elif not isinstance(config[key], dict):
             raise NarrowError(f"The '{key}' entry in .narrow/config.json must be a JSON object.")
+    profile = config.get("project_profile")
+    if profile is not None:
+        if not isinstance(profile, dict) or profile.get("name") not in {"web", "python", "data", "general"}:
+            raise NarrowError("project_profile must be a supported NARROW project profile object.")
+        for key, maximum in (("allowed_paths", 20), ("denied_paths", 40)):
+            values = profile.get(key, [])
+            if not isinstance(values, list) or len(values) > maximum or not all(isinstance(item, str) and item and len(item) <= 240 for item in values):
+                raise NarrowError(f"project_profile.{key} must be a bounded array of path patterns.")
     domains = config.get("claude_network_allowed_domains", [])
     if not isinstance(domains, list) or len(domains) > 100 or not all(isinstance(x, str) for x in domains):
         raise NarrowError("claude_network_allowed_domains must be an array of at most 100 domain strings.")
