@@ -98,7 +98,7 @@ class SetupProfileTests(unittest.TestCase):
             initialized=True,
         )
         self.assertIn("verification commands only", report["security_enforcement"]["verification_runtime"])
-        self.assertIn("not a microVM", report["security_enforcement"]["codex_container_runtime"].lower())
+        self.assertIn("not a microvm", report["security_enforcement"]["codex_container_runtime"].lower())
 
 
 if __name__ == "__main__":
