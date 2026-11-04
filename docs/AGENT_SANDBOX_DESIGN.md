@@ -353,3 +353,10 @@ prove a universal sandbox, protect a provider key from malicious code inside
 the agent container, or replace independent security review. The profile
 remains experimental and opt-in. The older published package predates the
 current Beta source.
+## Claude container-provider integration
+
+The POSIX/local-Docker agent runtime now supports both native Codex and native Claude CLI commands through the same host-supervised, dual-network proxy topology. Claude uses task-local settings generated specifically for the container: hooks invoke the in-image `python -m narrow hook claude ...` command, the direct-file PreToolUse gate consumes the read-only mounted policy manifest, MCP is an explicitly empty configuration, and Claude's provider-managed subagent/Task tools are not enabled in this profile. The host settings file is mounted read-only at `/run/narrow/claude-settings.json`; the MCP file is mounted read-only at `/run/narrow/claude-mcp.json`. The normal host-side Claude shell sandbox settings are intentionally removed inside this profile because the outer Docker boundary supplies process/filesystem/network containment. The host still parses Claude's JSONL output and records sanitized provider events.
+
+The shared digest-pinned agent image contains both provider CLIs. `narrow drive --provider claude --container-agent` selects only `ANTHROPIC_API_KEY`; `narrow drive --provider codex --container-agent` selects only `OPENAI_API_KEY`. Neither mode mounts the host provider home or global login profile. The selected credential is visible to the running provider process and tools in that container; it is not hidden from a malicious agent. Credential leases remain POSIX-only until restricted Windows DACL support exists.
+
+The Docker proxy-only E2E test validates the container network topology, not provider authentication or a live model session. CI image smoke tests verify both CLI binaries and the in-container hook imports. Do not claim a successful Claude/Codex account session unless one is separately performed. The runtime is still not a MicroVM; the Docker daemon, host kernel, and host bridge remain trusted.
