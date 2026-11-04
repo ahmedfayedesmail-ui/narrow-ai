@@ -1,4 +1,4 @@
-# Human review and acceptance (v0.5.0 Alpha)
+# Human review and acceptance — v0.5.0 workflow baseline (pre-Beta)
 
 NARROW does not approve an agent's work on the user's behalf. A passing test suite is necessary evidence, not a substitute for reviewing the actual change.
 
