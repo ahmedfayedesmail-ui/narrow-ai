@@ -198,9 +198,9 @@ class ReviewGateTests(unittest.TestCase):
         self.assertIn("VERIFIED_COMPLETE", events)
 
     def test_sensitive_approval_requires_explicit_acknowledgement_and_note(self):
-        self._configure_and_pass()
         (self.workspace / "src" / "auth").mkdir()
         (self.workspace / "src" / "auth" / "provider.py").write_text("AUTH_MODE = 'safe'\\n", encoding="utf-8")
+        self._configure_and_pass()
         for index in (1, 2):
             accept_criterion(self.store, self.task["id"], index, "Reviewed the current implementation and tests.")
         blocked = apply_human_review_decision(self.store, self.task["id"], "approve")
