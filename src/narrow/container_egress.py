@@ -270,19 +270,19 @@ def _verify_sidecar(
     mounts = inspected.get("Mounts")
     if not isinstance(mounts, list):
         raise NarrowError("Egress proxy sidecar mount inspection is missing.")
+    # Docker's inspect Mounts collection reports explicit bind/volume mounts
+    # but does not enumerate HostConfig.Tmpfs entries. The exact /tmp tmpfs
+    # policy was already verified above from HostConfig.Tmpfs.
     bind_mounts = [item for item in mounts if isinstance(item, dict) and item.get("Type") == "bind"]
-    tmpfs_mounts = [item for item in mounts if isinstance(item, dict) and item.get("Type") == "tmpfs"]
     other_mounts = [
         item for item in mounts
-        if not isinstance(item, dict) or item.get("Type") not in {"bind", "tmpfs"}
+        if not isinstance(item, dict) or item.get("Type") != "bind"
     ]
     if (
         len(bind_mounts) != 1
         or bind_mounts[0].get("Destination") != "/run/secrets/proxy-token"
         or bind_mounts[0].get("RW") is not False
         or Path(str(bind_mounts[0].get("Source", ""))).resolve() != token_path.resolve()
-        or len(tmpfs_mounts) != 1
-        or tmpfs_mounts[0].get("Destination") != "/tmp"
         or other_mounts
     ):
         # Keep the failure actionable without exposing any host mount source
