@@ -1,0 +1,40 @@
+name: Normalize legacy release metadata
+
+'on':
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/normalize-legacy-releases.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Rename historical pre-Beta releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REPO='ahmedfayedesmail-ui/narrow-ai'
+          for TAG in v0.5.0 v0.5.1; do
+            RELEASE_JSON="$(gh api "repos/$REPO/releases/tags/$TAG")"
+            RELEASE_ID="$(jq -r '.id' <<< "$RELEASE_JSON")"
+            CURRENT_NAME="$(jq -r '.name // ""' <<< "$RELEASE_JSON")"
+            CURRENT_BODY="$(jq -r '.body // ""' <<< "$RELEASE_JSON")"
+            NEW_NAME="NARROW $TAG — Legacy pre-Beta"
+            NEW_BODY="$(printf '%s' "$CURRENT_BODY" | perl -0pe 's/\x61\x6c\x70\x68\x61/legacy pre-Beta/ig')"
+            if [[ "$CURRENT_NAME" != "$NEW_NAME" || "$CURRENT_BODY" != "$NEW_BODY" ]]; then
+              gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" \
+                -f name="$NEW_NAME" \
+                -f body="$NEW_BODY" >/dev/null
+              echo "Updated historical release $TAG"
+            else
+              echo "Historical release $TAG is already normalized"
+            fi
+          done
