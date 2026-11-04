@@ -490,8 +490,9 @@ def _bounded_names(value: Any, maximum: int) -> list[str]:
     return result
 
 
-def _hook_command(event: str) -> str:
-    argv = [sys.executable, "-m", "narrow", "hook", "claude", event]
+def _hook_command(event: str, *, container_runtime: bool = False) -> str:
+    executable = "python" if container_runtime else sys.executable
+    argv = [executable, "-m", "narrow", "hook", "claude", event]
     # Claude hooks accept a command string rather than a separate argv array.
     return subprocess.list2cmdline(argv) if os.name == "nt" else shlex.join(argv)
 
@@ -534,7 +535,13 @@ def _credential_env_names() -> list[dict[str, str]]:
     return [{"name": name, "mode": "deny"} for name in sorted(known | discovered)[:200]]
 
 
-def claude_settings_path(store: Store, task_id: str, *, enable_subagents: bool = False) -> Path:
+def claude_settings_path(
+    store: Store,
+    task_id: str,
+    *,
+    enable_subagents: bool = False,
+    container_runtime: bool = False,
+) -> Path:
     """Write task-local hooks and a strict Bash sandbox policy for Claude Code.
 
     Claude's OS sandbox applies to shell commands and their subprocesses, not
@@ -555,14 +562,14 @@ def claude_settings_path(store: Store, task_id: str, *, enable_subagents: bool =
     hooks = {
         "SessionStart": [{"hooks": [{
             "type": "command",
-            "command": _hook_command("session-start"),
+            "command": _hook_command("session-start", container_runtime=container_runtime),
             "timeout": 5,
         }]}],
         "PreToolUse": [{
             "matcher": "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit",
             "hooks": [{
                 "type": "command",
-                "command": _hook_command("pre-tool-use"),
+                "command": _hook_command("pre-tool-use", container_runtime=container_runtime),
                 "timeout": 5,
                 "onFailure": "block",
             }],
@@ -571,7 +578,7 @@ def claude_settings_path(store: Store, task_id: str, *, enable_subagents: bool =
             "matcher": "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit",
             "hooks": [{
                 "type": "command",
-                "command": _hook_command("post-tool-use"),
+                "command": _hook_command("post-tool-use", container_runtime=container_runtime),
                 "timeout": 5,
             }],
         }],
@@ -579,40 +586,40 @@ def claude_settings_path(store: Store, task_id: str, *, enable_subagents: bool =
             "matcher": "Bash|Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit|Agent",
             "hooks": [{
                 "type": "command",
-                "command": _hook_command("post-tool-use-failure"),
+                "command": _hook_command("post-tool-use-failure", container_runtime=container_runtime),
                 "timeout": 5,
                 "onFailure": "continue",
             }],
         }],
         "SubagentStart": [{"hooks": [{
-            "type": "command", "command": _hook_command("subagent-start"),
+            "type": "command", "command": _hook_command("subagent-start", container_runtime=container_runtime),
             "timeout": 5, "onFailure": "continue",
         }]}],
         "SubagentStop": [{"hooks": [{
-            "type": "command", "command": _hook_command("subagent-stop"),
+            "type": "command", "command": _hook_command("subagent-stop", container_runtime=container_runtime),
             "timeout": 5, "onFailure": "continue",
         }]}],
         "TaskCreated": [{"hooks": [{
-            "type": "command", "command": _hook_command("task-created"),
+            "type": "command", "command": _hook_command("task-created", container_runtime=container_runtime),
             "timeout": 5, "onFailure": "continue",
         }]}],
         "TaskCompleted": [{"hooks": [{
-            "type": "command", "command": _hook_command("task-completed"),
+            "type": "command", "command": _hook_command("task-completed", container_runtime=container_runtime),
             "timeout": 5, "onFailure": "continue",
         }]}],
         "PreCompact": [{"hooks": [{
             "type": "command",
-            "command": _hook_command("pre-compact"),
+            "command": _hook_command("pre-compact", container_runtime=container_runtime),
             "timeout": 10,
         }]}],
         "Stop": [{"hooks": [{
             "type": "command",
-            "command": _hook_command("stop"),
+            "command": _hook_command("stop", container_runtime=container_runtime),
             "timeout": 5,
         }]}],
         "SessionEnd": [{"hooks": [{
             "type": "command",
-            "command": _hook_command("session-end"),
+            "command": _hook_command("session-end", container_runtime=container_runtime),
             "timeout": 5,
         }]}],
     }
@@ -657,6 +664,12 @@ def claude_settings_path(store: Store, task_id: str, *, enable_subagents: bool =
             },
         },
     }
+    if container_runtime:
+        # The outer container profile is the shell/process/filesystem boundary.
+        # Direct Claude file tools still pass through the mounted policy hook.
+        # Bypass provider prompts only inside this disposable, restricted container.
+        settings["permissions"]["defaultMode"] = "bypassPermissions"
+        settings.pop("sandbox", None)
     path = providers_dir / "claude-settings.json"
     write_internal_file(providers_dir, path.name, json.dumps(settings, indent=2) + "\n")
     mcp_path = providers_dir / "claude-mcp.json"
@@ -672,8 +685,9 @@ def claude_settings_path(store: Store, task_id: str, *, enable_subagents: bool =
         "mcp_config_path": str(mcp_path),
         "protected_tool_families": ["Read", "Glob", "Grep", "Write", "Edit", "MultiEdit", "NotebookEdit"],
         "subagents_enabled": bool(enable_subagents),
-        "shell_sandbox": "required_fail_closed",
-        "shell_network_allowlist_count": len(settings["sandbox"]["network"]["allowedDomains"]),
+        "shell_sandbox": "docker_container" if container_runtime else "required_fail_closed",
+        "shell_network_allowlist_count": len(settings.get("sandbox", {}).get("network", {}).get("allowedDomains", [])),
+        "container_runtime": bool(container_runtime),
         "mcp_enabled": False,
     })
     return path
@@ -692,9 +706,10 @@ def build_provider_command(
     enable_subagents: bool = False,
     effort: str | None = None,
     ultracode: bool = False,
+    container_agent: bool = False,
 ) -> tuple[ProviderAdapter, list[str]]:
     adapter = get_adapter(provider)
-    if not adapter.available():
+    if not container_agent and not adapter.available():
         raise NarrowError(
             f"{adapter.executable} was not found on PATH. Install and authenticate {adapter.name} separately; NARROW never asks for provider credentials."
         )
@@ -703,7 +718,9 @@ def build_provider_command(
     task = store.get_task(task_id)
     workspace = task_workspace(task)
     session_id = latest_provider_session_id(store, task_id, adapter.name) if resume else None
-    settings_file = claude_settings_path(store, task_id, enable_subagents=enable_subagents) if adapter.name == "claude" else None
+    settings_file = claude_settings_path(
+        store, task_id, enable_subagents=enable_subagents, container_runtime=container_agent
+    ) if adapter.name == "claude" else None
     command = adapter.build_command(
         workspace=workspace,
         prompt_file=prompt_file,
@@ -716,6 +733,17 @@ def build_provider_command(
         effort=effort,
         ultracode=ultracode,
     )
+    if container_agent and adapter.name == "claude":
+        # Claude must not wait for interactive permission prompts in a one-shot
+        # print-mode run. The bypass is used only inside the digest-pinned,
+        # resource-limited, internal-network-only Docker runtime.
+        try:
+            permission_index = command.index("--permission-mode")
+        except ValueError as exc:
+            raise NarrowError("Claude container command is missing its explicit permission mode.") from exc
+        if permission_index + 1 >= len(command) or command[permission_index + 1] != "default":
+            raise NarrowError("Claude container command has an unexpected starting permission mode.")
+        command[permission_index + 1] = "bypassPermissions"
     if resume and not session_id:
         store.add_event(task_id, "PROVIDER_RESUME_WITH_HANDOFF", {
             "provider": adapter.name,

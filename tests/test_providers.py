@@ -152,6 +152,19 @@ class ProviderAdapterTests(unittest.TestCase):
         with self.assertRaisesRegex(Exception, "Invalid Claude sandbox network domain"):
             claude_settings_path(self.store, self.task["id"])
 
+    def test_claude_container_settings_use_in_image_manifest_hooks_without_provider_sandbox(self):
+        path = claude_settings_path(
+            self.store, self.task["id"], container_runtime=True
+        )
+        settings = json.loads(path.read_text(encoding="utf-8"))
+        self.assertNotIn("sandbox", settings)
+        self.assertTrue(settings["permissions"]["blockReadsOutsideWorkingDirectories"])
+        hooks = json.dumps(settings["hooks"])
+        self.assertIn("python -m narrow hook claude pre-tool-use", hooks)
+        self.assertNotIn(str(sys.executable), hooks)
+        mcp_path = path.with_name("claude-mcp.json")
+        self.assertEqual(json.loads(mcp_path.read_text(encoding="utf-8")), {"mcpServers": {}})
+
     def test_claude_adapter_uses_print_stream_json_and_denies_approval_prompts(self):
         adapter = ClaudeCodeAdapter()
         settings = self.temp_path / "claude-settings.json"

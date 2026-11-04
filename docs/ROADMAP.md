@@ -56,7 +56,7 @@ The following capabilities are included in the current Beta preview on `main`; t
 - Project-manifest discovery proposes supported test commands without executing them; config changes require explicit review.
 - Plain-language task proposal can suggest a title, allowed/denied paths, and acceptance criteria. Local Ollama use is optional and loopback-only; a human must approve the contract before task creation.
 - Optional Docker/Podman isolation for verification commands remains available. It disables networking, uses a read-only container root and task-workspace mount by default, drops Linux capabilities, sets no-new-privileges, and applies CPU/memory/PID limits.
-- An experimental POSIX/local-Docker Codex agent profile is now wired on the Beta preview branch behind `narrow drive --provider codex --container-agent`. It uses an internal agent bridge, a separately routed and inspected egress-proxy sidecar, a mounted per-execution capability, no agent default route, and ordered host-supervised cleanup. The profile is included in this Beta preview but remains opt-in, POSIX/local-Docker only, and experimental.
+- An experimental POSIX/local-Docker Claude/Codex agent profile is now wired on the Beta preview branch behind `narrow drive --provider codex --container-agent`. It uses an internal agent bridge, a separately routed and inspected egress-proxy sidecar, a mounted per-execution capability, no agent default route, and ordered host-supervised cleanup. The profile is included in this Beta preview but remains opt-in, POSIX/local-Docker only, and experimental.
 - Third-party provider adapter loading is available through the narrow.adapters Python entry-point group. This is a plugin interface, not bundled LangChain, CrewAI, or AutoGen integrations.
 
 - Windows first-level child-process Job Object assignment with kill-on-close. Initial process-creation-to-assignment race, breakaway cases, Docker daemon containers, and adversarial Windows crash tests remain open.
@@ -65,7 +65,7 @@ The following capabilities are included in the current Beta preview on `main`; t
 - Field-version history and diffs for generated versus human-approved contracts; active contracts stay immutable.
 - Optional per-task pip/npm/pnpm/yarn cache mounts; no host home-directory cache or credential directories are mounted.
 
-The Beta preview on `main` now includes the opt-in POSIX/local-Docker Codex container. Its real Docker proxy-only egress acceptance job passed in merged-main CI run [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003). This does not amount to a microVM or universal agent sandbox. No authenticated Codex account session was performed; the owner has decided it is not a Beta-label prerequisite. Windows container supervision/credential DACL support, broader adversarial tests, and independent review remain maturity gates before stable release. The default execution mode remains unchanged for compatibility.
+The Beta preview on `main` now includes the opt-in POSIX/local-Docker Claude/Codex container. Its real Docker proxy-only egress acceptance job passed in merged-main CI run [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003). This does not amount to a microVM or universal agent sandbox. No authenticated Codex account session was performed; the owner has decided it is not a Beta-label prerequisite. Windows container supervision/credential DACL support, broader adversarial tests, and independent review remain maturity gates before stable release. The default execution mode remains unchanged for compatibility.
 
 ## v0.6 — Stronger execution isolation (planned)
 
@@ -95,3 +95,10 @@ The Beta preview on `main` now includes the opt-in POSIX/local-Docker Codex cont
 - Migration/backward-compatibility policy for local state.
 - Independent security review of autonomous execution path.
 - Clear guarantee matrix distinguishing verified behavior from best-effort monitoring.
+
+## Beta follow-up — dual-provider agent container runtime
+
+- The opt-in POSIX/local-Docker agent image now contains both pinned native Codex and Claude CLIs.
+- The host-supervised dual-network/proxy runtime accepts either native provider, using only that provider's explicitly selected API key and no host provider home/login profile.
+- Claude's container-specific direct-file hooks use the read-only task policy manifest; provider-managed Task/subagent tools and MCP are disabled in this profile.
+- The runtime remains experimental and does not provide a MicroVM. The Docker daemon and host kernel remain trusted. No live authenticated account run is implied by image smoke tests or proxy E2E tests.

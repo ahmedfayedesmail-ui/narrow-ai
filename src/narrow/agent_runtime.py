@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -25,13 +26,10 @@ def validate_agent_image(image: str) -> str:
     return image
 
 
-def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
-    """Rebuild the known Codex argv and replace the host path with /workspace."""
-    if provider != "codex":
-        raise NarrowError("The first container launch profile supports Codex only; Claude needs a container-specific settings and hook profile.")
+def _normalize_codex_argv(command: list[str]) -> list[str]:
     if (
         not isinstance(command, list)
-        or any(not isinstance(item, str) or not item or "\x00" in item for item in command)
+        or any(not isinstance(item, str) or not item or "\\x00" in item for item in command)
         or len(command) < 9
         or command[:2] != ["codex", "exec"]
         or command[-1] != "-"
@@ -68,7 +66,7 @@ def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
         if cursor + 1 >= len(tokens):
             raise NarrowError("Codex model option is missing its value.")
         model = tokens[cursor + 1]
-        if len(model) > 120 or model.startswith("-") or "/" in model or "\\" in model:
+        if len(model) > 120 or model.startswith("-") or "/" in model or "\\\\" in model:
             raise NarrowError("Codex model value is invalid for container execution.")
         result.extend(["--model", model])
         cursor += 2
@@ -81,6 +79,194 @@ def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
         raise NarrowError("Codex container command contains an unsupported or unsafe argument.")
     result.append("-")
     return result
+
+
+def _normalize_claude_argv(command: list[str]) -> list[str]:
+    """Rebuild the bounded Claude print-mode command and relocate policy files."""
+    sentinel = "Follow the complete NARROW task instructions supplied on standard input."
+    if (
+        not isinstance(command, list)
+        or any(not isinstance(item, str) or not item or "\\x00" in item for item in command)
+        or len(command) < 22
+        or command[0] != "claude"
+        or command[-1] != sentinel
+    ):
+        raise NarrowError("Container provider command must match the NARROW Claude print-mode adapter contract.")
+
+    tokens = command[1:-1]
+    prefix = [
+        "--print", "--output-format", "stream-json", "--verbose",
+        "--permission-mode", "default", "--permission-prompts", "none",
+        "--max-turns",
+    ]
+    if tokens[:len(prefix)] != prefix or len(tokens) <= len(prefix):
+        raise NarrowError("Claude container command must use structured print mode and deny approval prompts.")
+    cursor = len(prefix)
+    try:
+        turns = int(tokens[cursor])
+    except (TypeError, ValueError) as exc:
+        raise NarrowError("Claude container max-turn budget is malformed.") from exc
+    if not 1 <= turns <= 200:
+        raise NarrowError("Claude container max-turn budget must be between 1 and 200.")
+    cursor += 1
+    if tokens[cursor:cursor + 2] != ["--input-format", "text"]:
+        raise NarrowError("Claude container command must read its full task prompt from standard input.")
+    cursor += 2
+    allowed_tools = "Bash,Read,Edit,Write,Glob,Grep,NotebookEdit"
+    if tokens[cursor:cursor + 2] != ["--tools", allowed_tools]:
+        raise NarrowError("Claude container profile refuses unreviewed tools and subagent expansion.")
+    cursor += 2
+    if tokens[cursor:cursor + 2] != ["--disallowedTools", "mcp__*"]:
+        raise NarrowError("Claude container profile must disable MCP tools.")
+    cursor += 2
+
+    result = [
+        "claude", "--print", "--output-format", "stream-json", "--verbose",
+        "--permission-mode", "default", "--permission-prompts", "none",
+        "--max-turns", str(turns), "--input-format", "text",
+        "--tools", allowed_tools, "--disallowedTools", "mcp__*",
+    ]
+    settings_seen = False
+    mcp_seen = False
+    strict_mcp_seen = False
+    seen: set[str] = set()
+    while cursor < len(tokens):
+        flag = tokens[cursor]
+        if flag == "--strict-mcp-config":
+            if strict_mcp_seen:
+                raise NarrowError("Claude container command repeats --strict-mcp-config.")
+            strict_mcp_seen = True
+            result.append(flag)
+            cursor += 1
+            continue
+        if flag not in {"--settings", "--mcp-config", "--model", "--effort", "--max-budget-usd", "--resume"}:
+            raise NarrowError(f"Claude container command contains an unsupported option: {flag}.")
+        if flag in seen or cursor + 1 >= len(tokens):
+            raise NarrowError(f"Claude container command repeats {flag} or omits its value.")
+        seen.add(flag)
+        value = tokens[cursor + 1]
+        if not value or value.startswith("--"):
+            raise NarrowError(f"Claude container option {flag} has an invalid value.")
+        if flag == "--settings":
+            settings_seen = True
+            result.extend([flag, "/run/narrow/claude-settings.json"])
+        elif flag == "--mcp-config":
+            mcp_seen = True
+            result.extend([flag, "/run/narrow/claude-mcp.json"])
+        elif flag == "--model":
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}", value):
+                raise NarrowError("Claude model value is invalid for container execution.")
+            result.extend([flag, value])
+        elif flag == "--effort":
+            if value not in {"low", "medium", "high", "xhigh", "max"}:
+                raise NarrowError("Claude container effort must be one of low, medium, high, xhigh, max.")
+            result.extend([flag, value])
+        elif flag == "--max-budget-usd":
+            try:
+                budget = float(value)
+            except ValueError as exc:
+                raise NarrowError("Claude container budget is malformed.") from exc
+            if not 0 < budget <= 1000:
+                raise NarrowError("Claude container budget must be greater than 0 and no more than 1000 USD.")
+            result.extend([flag, f"{budget:.2f}"])
+        elif flag == "--resume":
+            if not _SESSION_ID.fullmatch(value):
+                raise NarrowError("Claude resume session ID is invalid for container execution.")
+            result.extend([flag, value])
+        cursor += 2
+
+    if not settings_seen or not mcp_seen or not strict_mcp_seen:
+        raise NarrowError("Claude container command must use its task-specific settings and strict empty MCP profile.")
+    result.append(sentinel)
+    return result
+
+
+def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
+    """Rebuild a reviewed native provider argv and translate host-only paths."""
+    if provider == "codex":
+        return _normalize_codex_argv(command)
+    if provider == "claude":
+        return _normalize_claude_argv(command)
+    raise NarrowError("The container agent runtime supports only the native Claude and Codex providers.")
+
+
+def validate_claude_container_settings(
+    settings_path: Path | str,
+    mcp_path: Path | str,
+) -> tuple[Path, Path]:
+    """Verify the exact manifest-hook settings profile allowed inside Docker."""
+    settings_file = Path(settings_path)
+    mcp_file = Path(mcp_path)
+    for item in (settings_file, mcp_file):
+        try:
+            metadata = item.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise NarrowError("Claude container settings must be regular, unlinked host files.")
+        except OSError as exc:
+            raise NarrowError("Claude container settings are missing or unavailable.") from exc
+    try:
+        settings_data = json.loads(settings_file.read_text(encoding="utf-8"))
+        mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise NarrowError("Claude container settings are not valid task-local JSON.") from exc
+    if not isinstance(settings_data, dict) or "sandbox" in settings_data:
+        raise NarrowError("Claude container settings must delegate containment to the outer Docker boundary.")
+    expected_top_level = {"permissions", "hooks"}
+    if set(settings_data) != expected_top_level:
+        raise NarrowError("Claude container settings contain unsupported or missing top-level fields.")
+    permissions = settings_data.get("permissions")
+    if permissions != {
+        "defaultMode": "default",
+        "blockReadsOutsideWorkingDirectories": True,
+    }:
+        raise NarrowError("Claude container settings must preserve default permissions and working-directory read restriction.")
+    hooks = settings_data.get("hooks")
+    expected_events = {
+        "SessionStart": "session-start",
+        "PreToolUse": "pre-tool-use",
+        "PostToolUse": "post-tool-use",
+        "PostToolUseFailure": "post-tool-use-failure",
+        "SubagentStart": "subagent-start",
+        "SubagentStop": "subagent-stop",
+        "TaskCreated": "task-created",
+        "TaskCompleted": "task-completed",
+        "PreCompact": "pre-compact",
+        "Stop": "stop",
+        "SessionEnd": "session-end",
+    }
+    if not isinstance(hooks, dict) or set(hooks) != set(expected_events):
+        raise NarrowError("Claude container hook profile is missing required NARROW lifecycle and file-policy hooks.")
+    for event_name, event in expected_events.items():
+        groups = hooks.get(event_name)
+        if not isinstance(groups, list) or len(groups) != 1:
+            raise NarrowError(f"Claude container {event_name} hook configuration is malformed.")
+        group = groups[0]
+        if not isinstance(group, dict):
+            raise NarrowError(f"Claude container {event_name} hook group is malformed.")
+        hook_list = group.get("hooks")
+        if not isinstance(hook_list, list) or len(hook_list) != 1:
+            raise NarrowError(f"Claude container {event_name} hook command is missing or ambiguous.")
+        hook = hook_list[0]
+        if not isinstance(hook, dict) or hook.get("type") != "command":
+            raise NarrowError(f"Claude container {event_name} must use one in-image NARROW command hook.")
+        if hook.get("command") != f"python -m narrow hook claude {event}":
+            raise NarrowError(f"Claude container {event_name} hook does not invoke the exact NARROW in-image command.")
+        if event_name == "PreToolUse":
+            if group.get("matcher") != "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit" or hook.get("onFailure") != "block":
+                raise NarrowError("Claude container direct file tools must be gated by a blocking NARROW PreToolUse hook.")
+            if hook.get("timeout") != 5:
+                raise NarrowError("Claude container direct file gate timeout is invalid.")
+        elif event_name == "PostToolUse":
+            if group.get("matcher") != "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit":
+                raise NarrowError("Claude container PostToolUse hook matcher is invalid.")
+        elif event_name == "PostToolUseFailure":
+            if group.get("matcher") != "Bash|Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit|Agent":
+                raise NarrowError("Claude container PostToolUseFailure matcher is invalid.")
+        elif "matcher" in group:
+            raise NarrowError(f"Claude container {event_name} hook must not broaden its matcher.")
+    if mcp_data != {"mcpServers": {}}:
+        raise NarrowError("Claude container MCP configuration must be exactly empty.")
+    return settings_file, mcp_file
 
 
 def _validated_mount_source(value: Path | str, *, directory: bool) -> str:
@@ -126,6 +312,8 @@ def build_docker_agent_command(
     proxy_token_path: Path | str,
     uid: int | None = None,
     gid: int | None = None,
+    claude_settings_file: Path | str | None = None,
+    claude_mcp_file: Path | str | None = None,
 ) -> list[str]:
     """Build the exact, restricted Docker argv accepted by the host supervisor.
 
@@ -137,13 +325,16 @@ def build_docker_agent_command(
     if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
         raise NarrowError("Invalid task ID for Docker agent command.")
     execution = _validate_execution_id(execution_id)
+    provider = provider_command[0] if isinstance(provider_command, list) and provider_command else None
+    if provider not in {"claude", "codex"}:
+        raise NarrowError("Docker agent command supports only the native Claude and Codex CLIs.")
     if (
         not isinstance(credential_lease, CredentialLease)
-        or credential_lease.provider != "codex"
+        or credential_lease.provider != provider
         or credential_lease.task_id != task_id
         or credential_lease.execution_id != execution
     ):
-        raise NarrowError("Docker agent command requires the exact Codex credential lease for this execution.")
+        raise NarrowError("Docker agent command requires the exact selected-provider credential lease for this execution.")
     secret_path = validate_credential_lease(credential_lease)
     if uid is None or gid is None:
         if not hasattr(os, "getuid") or not hasattr(os, "getgid"):
@@ -184,7 +375,21 @@ def build_docker_agent_command(
         if secret_metadata.st_uid != uid or proxy_metadata.st_uid != uid or home_metadata.st_uid != uid:
             raise NarrowError("Docker agent UID must own the private credential, proxy capability, and task-home mounts.")
 
-    normalized_provider = normalize_provider_argv("codex", provider_command)
+    normalized_provider = normalize_provider_argv(provider, provider_command)
+    claude_settings = None
+    claude_mcp = None
+    if provider == "claude":
+        if claude_settings_file is None or claude_mcp_file is None:
+            raise NarrowError("Claude container execution requires task-specific settings and an empty MCP profile.")
+        claude_settings = _validated_mount_source(claude_settings_file, directory=False)
+        claude_mcp = _validated_mount_source(claude_mcp_file, directory=False)
+        expected_settings = Path(credential_lease.state_dir) / "providers" / task_id / "claude-settings.json"
+        expected_mcp = Path(credential_lease.state_dir) / "providers" / task_id / "claude-mcp.json"
+        if Path(claude_settings).resolve(strict=True) != expected_settings.resolve(strict=True) or Path(claude_mcp).resolve(strict=True) != expected_mcp.resolve(strict=True):
+            raise NarrowError("Claude container settings must be the exact task-scoped NARROW-generated files.")
+        validate_claude_container_settings(claude_settings, claude_mcp)
+    elif claude_settings_file is not None or claude_mcp_file is not None:
+        raise NarrowError("Codex container execution does not accept Claude settings mounts.")
     network = f"narrow-agent-{task_id[:32]}-{execution.replace('-', '')[:12]}"
     container_name = f"narrow-agent-{task_id[:24]}-{execution.replace('-', '')[:12]}"
     spool = "/home/narrow/.local/state/narrow/hook-events.jsonl"
@@ -211,6 +416,11 @@ def build_docker_agent_command(
         "--mount", f"type=bind,source={secret},target=/run/secrets/provider-api-key,readonly",
         "--mount", f"type=bind,source={proxy_secret},target=/run/secrets/proxy-token,readonly",
     ]
+    if provider == "claude":
+        command.extend([
+            "--mount", f"type=bind,source={claude_settings},target=/run/narrow/claude-settings.json,readonly",
+            "--mount", f"type=bind,source={claude_mcp},target=/run/narrow/claude-mcp.json,readonly",
+        ])
     command.extend(agent_container_label_args(task_id, execution))
     for key, value in (
         ("HOME", "/home/narrow"),
@@ -227,7 +437,7 @@ def build_docker_agent_command(
         "--entrypoint", "python",
         pinned_image,
         "-m", "narrow.agent_entrypoint",
-        "--provider", "codex",
+        "--provider", provider,
         "--credential-file", "/run/secrets/provider-api-key",
         "--proxy-token-file", "/run/secrets/proxy-token",
         "--",

@@ -15,9 +15,9 @@ It works with the coding agents you already have. NARROW itself does not require
 - Project discovery and test-command proposals are bounded and read-only; discovered checks are not executed automatically.
 - Plain-language task proposals require human review before task creation or configuration changes.
 - Optional Docker/Podman verification is network-disabled by default and resource-limited.
-- An opt-in POSIX/local-Docker Codex container runtime uses a separate proxy sidecar, execution-scoped networks, digest-pinned images, mounted short-lived credentials, and supervised cleanup.
+- An opt-in POSIX/local-Docker Claude/Codex container runtime uses a separate proxy sidecar, execution-scoped networks, digest-pinned images, mounted short-lived credentials, and supervised cleanup.
 
-The Codex container profile remains experimental and opt-in. Its real Docker proxy-only egress acceptance job passed on merged-main CI run [#41779875499](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41779875499). A live authenticated Codex account run is not required for the Beta label by the project owner's decision, and no live run is claimed.
+The Claude/Codex container profile remains experimental and opt-in. Its real Docker proxy-only egress acceptance job passed on merged-main CI run [#41779875499](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41779875499). A live authenticated Codex account run is not required for the Beta label by the project owner's decision, and no live run is claimed.
 
 ## What's new in v0.5.0
 
@@ -46,27 +46,33 @@ The current Beta preview on `main` includes four opt-in capabilities added after
 
 Build and pin the agent/proxy images using the recipes and exact requirements in [examples/containers/README.md](examples/containers/README.md). The Docker daemon and host kernel remain trusted infrastructure; this is not equivalent to a Firecracker microVM or independent security review.
 
-To opt in to the experimental **Codex agent** container mode, add this reviewed configuration to `.narrow/config.json` (replace both digest references with images you built and audited):
+To opt in to the experimental **Claude or Codex agent** container mode, add this reviewed configuration to `.narrow/config.json` (replace both digest references with images you built and audited):
 
 ```json
 {
   "agent_container": {
-    "image": "ghcr.io/your-org/narrow-codex-agent@sha256:<64-hex-digest>",
+    "image": "ghcr.io/your-org/narrow-agent@sha256:<64-hex-digest>",
     "proxy_image": "ghcr.io/your-org/narrow-egress-proxy@sha256:<64-hex-digest>",
     "egress_allow_hosts": ["api.openai.com"]
   }
 }
 ```
 
-The agent image must contain the Codex CLI, Python, and the matching NARROW `narrow.agent_entrypoint` package. The proxy image must contain the matching `narrow.egress_proxy` package. Run with an explicit API key; NARROW does not import a Codex login profile:
+The shared agent image contains the version-pinned native Codex and Claude CLIs, Python, and NARROW's in-container manifest hooks. The proxy image contains the matching `narrow.egress_proxy` package. The provider API key must be explicitly present in the host process environment. Run one of:
 
 ```bash
 export OPENAI_API_KEY=...
 narrow drive --provider codex --container-agent
 ```
 
-Use the exact provider endpoints needed by your account in `egress_allow_hosts`; the default example is intentionally narrow and may not cover every account or feature. The mounted key is readable by the agent process. The Docker daemon and host kernel remain trusted, and the agent can still attempt to reach host services exposed on its local bridge. This is not a microVM or a complete boundary against a malicious host-level process. The feature remains opt-in and experimental within this Beta preview. The Docker proxy-only egress acceptance job is part of the merged-main CI workflow and is still pending a passing result. A live authenticated Codex account session is not required for the Beta label by the project owner's decision; no such session is claimed.
+```bash
+export ANTHROPIC_API_KEY=...
+narrow drive --provider claude --container-agent
+```
 
+For Claude, task-specific container settings route direct file-tool checks through the mounted, read-only NARROW policy manifest. Claude's provider-managed subagent/Task tools and MCP are deliberately disabled in this container profile; shell commands and their child processes remain inside the outer Docker boundary. For Codex, the CLI keeps its native workspace-write sandbox. In both cases, only the selected provider's explicit API key is passed to the container, not the host provider login/profile directories.
+
+Use the exact provider endpoints required by your account in `egress_allow_hosts` (`api.anthropic.com` for Claude and the OpenAI API hostname for Codex). The mounted key is readable by the provider process. The Docker daemon and host kernel remain trusted, and the agent may still attempt to reach host services exposed on its local bridge. This is not a microVM, a universal boundary against a malicious host process, or an independent security audit. The feature remains opt-in, experimental, and POSIX/local-Docker only. The Docker E2E workflow validates the proxy-only network topology and image/CLI smoke tests; it does not sign in to either provider or claim a live authenticated agent session.
 Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md, docs/SANDBOXING.md, and docs/AGENT_SANDBOX_DESIGN.md for installation, configuration, and the remaining agent-container acceptance gates.
 
 The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created suspended inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; NARROW verifies Job membership before resuming the initial thread. There is no post-creation assignment window or suspended child outside the Job. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. The Beta preview is available from the `main` source branch. The older published v0.5.1 PyPI package predates the current Beta source and does not include these changes.
@@ -295,7 +301,7 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 
 ## Current validation
 
-- PR #16 and PR #17 are merged into `main`. The Beta source includes discovery, human-reviewed task proposals, optional containerized verification, and the opt-in Codex container/proxy runtime.
+- PR #16 and PR #17 are merged into `main`. The Beta source includes discovery, human-reviewed task proposals, optional containerized verification, and the opt-in Claude/Codex container/proxy runtime.
 - The complete merged-main workflow [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003) passed all nine jobs on commit `979198b`: Ubuntu/Python 3.11–3.14 unit tests, demos and CLI checks; macOS full suite and demos; Windows repaired/blocked demo and task-lock jobs; Docker image build and real proxy-only egress acceptance; and wheel/source-distribution build plus clean wheel installation.
 - CodeQL also passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
 - No authenticated live Codex account session was performed. The project owner has explicitly decided that such a session is not required for the Beta label; no live provider execution is claimed.

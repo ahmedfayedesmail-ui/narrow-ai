@@ -123,7 +123,10 @@ jobs:
         env:
           BASE_IMAGE: ${{ steps.bases.outputs.NODE_BASE_IMAGE }}
         run: |
-          docker build --build-arg BASE_IMAGE="$BASE_IMAGE" --build-arg CODEX_VERSION=0.166.0 -f examples/containers/codex-agent.Dockerfile -t narrow-codex-agent:ci .
+          docker build --build-arg BASE_IMAGE="$BASE_IMAGE" --build-arg CODEX_VERSION=0.166.0 --build-arg CLAUDE_CODE_VERSION=2.1.311 -f examples/containers/codex-agent.Dockerfile -t narrow-agent:ci .
+          docker run --rm --entrypoint codex narrow-agent:ci --version
+          docker run --rm --entrypoint claude narrow-agent:ci --version
+          docker run --rm --entrypoint python narrow-agent:ci -c "from narrow.container_hooks import handle_container_claude_hook; from narrow.agent_runtime import normalize_provider_argv; print('dual-provider runtime imports passed')"
       - name: Build the digest-pinned proxy image
         env:
           BASE_IMAGE: ${{ steps.bases.outputs.PYTHON_BASE_IMAGE }}
@@ -139,11 +142,11 @@ jobs:
             sleep 1
           done
           curl --fail --silent http://127.0.0.1:5000/v2/ >/dev/null
-          docker tag narrow-codex-agent:ci localhost:5000/narrow-codex-agent:ci
+          docker tag narrow-agent:ci localhost:5000/narrow-agent:ci
           docker tag narrow-egress-proxy:ci localhost:5000/narrow-egress-proxy:ci
-          docker push localhost:5000/narrow-codex-agent:ci
+          docker push localhost:5000/narrow-agent:ci
           docker push localhost:5000/narrow-egress-proxy:ci
-          AGENT_DIGEST="$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-codex-agent:ci)"
+          AGENT_DIGEST="$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-agent:ci)"
           PROXY_DIGEST="$(docker image inspect --format='{{index .RepoDigests 0}}' localhost:5000/narrow-egress-proxy:ci)"
           grep -Eq '@sha256:[0-9a-f]{64}$' <<< "$AGENT_DIGEST"
           grep -Eq '@sha256:[0-9a-f]{64}$' <<< "$PROXY_DIGEST"

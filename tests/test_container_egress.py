@@ -13,6 +13,7 @@ from narrow.container_egress import (
     provision_execution_egress_proxy,
     remove_execution_proxy_token_file,
     run_codex_container_agent,
+    run_provider_container_agent,
 )
 from narrow.credential_broker import CredentialLease
 from narrow.container_lifecycle import (
@@ -199,6 +200,95 @@ class ContainerEgressTests(unittest.TestCase):
 
 
     @unittest.skipIf(os.name == "nt" or os.getuid() == 0, "Requires a non-root POSIX host identity")
+    def test_claude_container_agent_wrapper_wires_claude_credential_and_policy_files(self):
+        from types import SimpleNamespace
+
+        settings_dir = self.store.state_dir / "providers" / TASK
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        settings_path = settings_dir / "claude-settings.json"
+        mcp_path = settings_dir / "claude-mcp.json"
+        settings_path.write_text("{}", encoding="utf-8")
+        mcp_path.write_text('{"mcpServers":{}}', encoding="utf-8")
+
+        workspace = Path(self.temp.name) / "workspace-claude"
+        workspace.mkdir()
+        manifest_path = self.store.state_dir / "runtime" / "agent" / TASK / EXECUTION / "policy.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        manifest_path.write_text("{}", encoding="utf-8")
+        secret_path = self.store.state_dir / "runtime" / "agent" / TASK / EXECUTION / "credentials" / ("claude-" + "d" * 32 + ".secret")
+        secret_path.parent.mkdir(parents=True, exist_ok=True)
+        secret_path.write_bytes(b"anthropic-secret")
+        secret_path.chmod(0o400)
+        lease = CredentialLease(
+            path=secret_path,
+            state_dir=self.store.state_dir,
+            provider="claude",
+            environment_name="ANTHROPIC_API_KEY",
+            task_id=TASK,
+            execution_id=EXECUTION,
+            expires_at=9999999999.0,
+            sha256="0" * 64,
+        )
+        runtime = EgressProxyRuntime(
+            container_id=CONTAINER_ID,
+            container_name="narrow-egress-proxy-claude",
+            token_path=self.store.state_dir / "runtime" / "agent" / TASK / EXECUTION / "proxy.token",
+            agent_network=self.agent_network,
+            uplink_network=self.uplink_network,
+            image=IMAGE,
+            allowed_hosts=("api.anthropic.com",),
+        )
+        command = [
+            "claude", "--settings", str(settings_path),
+            "--strict-mcp-config", "--mcp-config", str(mcp_path),
+        ]
+        with patch.object(self.store, "add_event"), patch(
+            "narrow.policy_manifest.write_policy_manifest", return_value=SimpleNamespace(path=manifest_path)
+        ), patch(
+            "narrow.credential_broker.issue_credential_lease", return_value=lease
+        ) as issue, patch(
+            "narrow.container_egress.provision_execution_egress_proxy", return_value=runtime
+        ) as provision, patch(
+            "narrow.container_egress.task_workspace", return_value=workspace
+        ), patch(
+            "narrow.agent_runtime.build_docker_agent_command", return_value=["docker", "run", "restricted"]
+        ) as build, patch(
+            "narrow.container_supervisor.run_container_agent", return_value=(0, "claude-container-ok")
+        ) as run, patch(
+            "narrow.container_egress.list_execution_agent_containers", return_value=[]
+        ), patch(
+            "narrow.container_egress.cleanup_execution_egress_proxy_containers", return_value=1
+        ), patch(
+            "narrow.container_egress.list_execution_egress_proxy_containers", return_value=[]
+        ), patch(
+            "narrow.container_egress.cleanup_execution_egress_uplink_networks", return_value=1
+        ), patch(
+            "narrow.container_egress.cleanup_execution_agent_networks", return_value=1
+        ), patch(
+            "narrow.container_egress.remove_execution_proxy_token_file", return_value=True
+        ):
+            code, output = run_provider_container_agent(
+                self.store,
+                TASK,
+                EXECUTION,
+                command,
+                provider="claude",
+                agent_image=IMAGE,
+                proxy_image=IMAGE,
+                allowed_hosts=["api.anthropic.com"],
+                stdin_text="bounded Claude prompt",
+            )
+
+        self.assertEqual((code, output), (0, "claude-container-ok"))
+        issue.assert_called_once_with(self.store, "claude", TASK, EXECUTION)
+        provision.assert_called_once_with(self.store, TASK, EXECUTION, IMAGE, ["api.anthropic.com"])
+        build.assert_called_once()
+        self.assertEqual(build.call_args.kwargs["claude_settings_file"], settings_path)
+        self.assertEqual(build.call_args.kwargs["claude_mcp_file"], mcp_path)
+        run.assert_called_once()
+        self.assertEqual(run.call_args.kwargs["stdin_text"], "bounded Claude prompt")
+        self.assertEqual(run.call_args.kwargs["credential_lease"], lease)
+
     def test_codex_container_agent_wrapper_wires_manifest_lease_proxy_and_supervisor(self):
         from types import SimpleNamespace
 
