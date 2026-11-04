@@ -128,7 +128,7 @@ def build_review_report(store: Store, task_id: str) -> dict[str, Any]:
     # Check whitespace/conflict markers in tracked diffs using sanitized Git config.
     try:
         diff_check = subprocess.run(
-            ["git", "-C", str(workspace), "diff", "--check", task["base_sha"], "--", *paths],
+            ["git", "-C", str(workspace), "diff", "--check", task["base_sha"], "--"],
             text=True,
             capture_output=True,
             timeout=15,
@@ -182,7 +182,7 @@ def build_review_report(store: Store, task_id: str) -> dict[str, Any]:
                 except (TypeError, json.JSONDecodeError):
                     recorded_command = None
                 command = spec.get("command") if isinstance(spec, dict) else None
-                configured_command = [redact(part) for part in command] if isinstance(command, list) else None
+                configured_command = [redact(part) for part in command] if isinstance(command, list) and all(isinstance(part, str) for part in command) else None
                 if recorded_command != configured_command:
                     status, detail = "CONFIG_CHANGED", "The configured command differs from the signed command; rerun this check."
                 elif row["snapshot_hash"] != current_snapshot:
