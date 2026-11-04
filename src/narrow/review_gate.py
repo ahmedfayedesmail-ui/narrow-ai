@@ -393,7 +393,15 @@ def apply_human_review_decision(
                 "message": "This change includes security-sensitive paths. Review the flagged paths and explicitly acknowledge them before approval.",
             }
         if report["risk_flags"] and not reason.strip():
-            raise NarrowError("A short human review note is required when approving security-sensitive changes.")
+            return {
+                "schema": "narrow.human-review-decision.v1",
+                "ok": False,
+                "http_status": 409,
+                "decision": decision,
+                "task_status": current_status,
+                "report": report,
+                "message": "Add a short human review note explaining which sensitive changes you inspected before approval.",
+            }
 
         finished, problems = finish_task(store, task_id)
         if not finished:
