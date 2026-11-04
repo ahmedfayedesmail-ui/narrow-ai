@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from narrow.core import Store, accept_criterion, create_task, init_project, save_check_run, snapshot_hash
-from narrow.review_gate import build_review_report, evaluate_repair_continuation
+from narrow.review_gate import apply_human_review_decision, build_review_report, evaluate_repair_continuation
 
 
 def git(root: Path, *args: str) -> str:
@@ -92,8 +92,8 @@ class ReviewGateTests(unittest.TestCase):
     def test_out_of_scope_and_denied_paths_are_blockers(self):
         (self.workspace / "docs").mkdir()
         (self.workspace / "docs" / "notes.md").write_text("outside\n", encoding="utf-8")
-        (self.workspace / "src" / "auth").mkdir()
-        (self.workspace / "src" / "auth" / "provider.py").write_text("token = None\n", encoding="utf-8")
+        (self.workspace / "src" / "authentication").mkdir()
+        (self.workspace / "src" / "authentication" / "provider.py").write_text("token = None\n", encoding="utf-8")
         report = build_review_report(self.store, self.task["id"])
         self.assertEqual(report["decision"], "BLOCKED")
         scope_gate = next(item for item in report["gates"] if item["name"] == "scope")
@@ -155,6 +155,66 @@ class ReviewGateTests(unittest.TestCase):
             "risk_flags": [],
         }
         self.assertEqual(evaluate_repair_continuation(report)["decision"], "STOP")
+
+    def test_request_changes_records_reason_and_keeps_task_open(self):
+        self.store.update_status(self.task["id"], "READY_FOR_REVIEW")
+        result = apply_human_review_decision(
+            self.store, self.task["id"], "request_changes",
+            reason="Please add regression coverage for the retry path.",
+        )
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["task_status"], "NEEDS_REVIEW")
+        self.assertEqual(self.store.get_task(self.task["id"])["status"], "NEEDS_REVIEW")
+        event = self.store.events(self.task["id"])[-1]
+        self.assertEqual(event["type"], "HUMAN_REVIEW_CHANGES_REQUESTED")
+        self.assertIn("regression coverage", event["payload"]["reason"])
+
+    def test_reject_closes_task_and_preserves_workspace(self):
+        self.store.update_status(self.task["id"], "READY_FOR_REVIEW")
+        result = apply_human_review_decision(
+            self.store, self.task["id"], "reject", reason="The proposed approach is not acceptable."
+        )
+        self.assertEqual(result["task_status"], "CLOSED")
+        self.assertTrue(self.workspace.is_dir())
+        self.assertEqual(self.store.events(self.task["id"])[-1]["type"], "HUMAN_REVIEW_REJECTED")
+
+    def test_approve_is_blocked_until_every_gate_is_ready(self):
+        self.store.update_status(self.task["id"], "READY_FOR_REVIEW")
+        result = apply_human_review_decision(self.store, self.task["id"], "approve")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["http_status"], 409)
+        self.assertEqual(self.store.get_task(self.task["id"])["status"], "READY_FOR_REVIEW")
+
+    def test_approve_requires_current_checks_and_all_human_evidence_then_runs_finish_gate(self):
+        self._configure_and_pass()
+        for index in (1, 2):
+            accept_criterion(self.store, self.task["id"], index, "I inspected the current diff and verified this criterion.")
+        result = apply_human_review_decision(self.store, self.task["id"], "approve")
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["task_status"], "VERIFIED_COMPLETE")
+        self.assertEqual(self.store.get_task(self.task["id"])["status"], "VERIFIED_COMPLETE")
+        events = [item["type"] for item in self.store.events(self.task["id"])]
+        self.assertIn("HUMAN_REVIEW_APPROVED", events)
+        self.assertIn("VERIFIED_COMPLETE", events)
+
+    def test_sensitive_approval_requires_explicit_acknowledgement_and_note(self):
+        (self.workspace / "src" / "authentication").mkdir()
+        (self.workspace / "src" / "authentication" / "provider.py").write_text("AUTH_MODE = 'safe'\\n", encoding="utf-8")
+        self._configure_and_pass()
+        for index in (1, 2):
+            accept_criterion(self.store, self.task["id"], index, "Reviewed the current implementation and tests.")
+        blocked = apply_human_review_decision(self.store, self.task["id"], "approve")
+        self.assertFalse(blocked["ok"])
+        self.assertIn("acknowledge", blocked["message"])
+        missing_note = apply_human_review_decision(
+            self.store, self.task["id"], "approve", acknowledge_risks=True
+        )
+        self.assertTrue(missing_note["ok"] is False)
+        approved = apply_human_review_decision(
+            self.store, self.task["id"], "approve",
+            acknowledge_risks=True, reason="I reviewed the authentication changes and tests.",
+        )
+        self.assertTrue(approved["ok"])
 
     def test_security_sensitive_paths_are_flagged_for_human_scrutiny(self):
         workflows = self.workspace / ".github" / "workflows"

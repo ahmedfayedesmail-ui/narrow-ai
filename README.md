@@ -113,6 +113,28 @@ A retry is allowed only for a plain verification failure with no safety blockers
 
 This is verification-gated autonomy, not automatic approval. Even when a repair retry is permitted, the number of attempts remains bounded, the checks must pass on the current snapshot, and a human must still review the diff, confirm acceptance criteria, and run `narrow finish`.
 
+## Explicit human review decisions
+
+The local Control Center now exposes a same-origin, token-authenticated decision panel after the diff and deterministic review report.
+
+- **Confirm criterion** requires evidence for each acceptance criterion. Evidence is bound to the current workspace snapshot; later edits make it stale.
+- **Request changes** records the reviewer's reason and returns the task to `NEEDS_REVIEW`; it does not launch an agent.
+- **Reject** requires a reason and closes the task while preserving its workspace and evidence.
+- **Approve & finish** is available only when the deterministic report is `READY_FOR_FINISH_GATE`. It calls the independent `narrow finish` checks again before marking the task verified complete. Sensitive-path findings require an explicit acknowledgement and review note.
+
+The same decisions are available through `narrow review-action`. The dashboard's write endpoint accepts only a bounded JSON body, requires the one-time dashboard token and same-origin `Origin`, and is protected by the per-task execution lock. It cannot launch agents or execute shell commands.
+
+Examples:
+
+```bash
+narrow review-action --decision accept_criterion --criterion 1 --evidence "I inspected the current diff and verified this criterion."
+narrow review-action --decision request_changes --reason "Add a regression test for the timeout path."
+narrow review-action --decision reject --reason "The proposed approach does not meet the requirement."
+narrow review-action --decision approve
+```
+
+For a review with sensitive-path flags, add `--acknowledge-risks --reason "I reviewed the flagged authentication changes."` to the approval command.
+
 ## Deterministic review gate
 
 Run `narrow review` after an agent finishes its bounded work cycle. The command builds a read-only evidence packet and supports `--json` for automation. The same report is available in the local Control Center under **Automated review**.

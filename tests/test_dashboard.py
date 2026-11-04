@@ -77,6 +77,7 @@ class DashboardTests(unittest.TestCase):
             headers["Origin"] = origin
         if body is not None:
             headers["Content-Length"] = str(len(body))
+            headers["Content-Type"] = "application/json"
         connection.request(method, path, body=body, headers=headers)
         response = connection.getresponse()
         result = (response.status, response.getheaders(), response.read())
@@ -110,14 +111,95 @@ class DashboardTests(unittest.TestCase):
         self.assertEqual(status, 403)
         self.assertIn(b"Localhost access only", body)
 
-    def test_dashboard_is_read_only_and_requires_token_for_mutation_verbs(self):
-        status, _, _ = self.request("POST", "/api/v1/tasks", body=b"{}")
-        self.assertEqual(status, 405)
-        status, _, _ = self.request("POST", "/api/v1/tasks", body=b"{}", authenticated=False)
+    def test_dashboard_rejects_mutation_without_same_origin_and_token(self):
+        status, _, body = self.request("POST", "/api/v1/tasks", body=b"{}", origin=None)
         self.assertEqual(status, 403)
-        status, _, _ = self.request("PUT", "/api/v1/tasks", body=b"{}", token="wrong-token")
+        self.assertIn(b"unauthorized", body.lower())
+
+        same_origin = f"http://127.0.0.1:{self.server.server_port}"
+        status, _, body = self.request(
+            "POST", "/api/v1/tasks", body=b"{}", origin=same_origin
+        )
+        self.assertEqual(status, 404)  # Authenticated writes are routed only to review decisions.
+
+        status, _, _ = self.request(
+            "POST", "/api/v1/tasks", body=b"{}", authenticated=False, origin=same_origin
+        )
         self.assertEqual(status, 403)
-        self.assertEqual(self.store.get_task(self.task["id"])["status"], "ACTIVE")
+        status, _, _ = self.request(
+            "PUT", "/api/v1/tasks", body=b"{}", token="wrong-token", origin=same_origin
+        )
+        self.assertEqual(status, 403)
+        status, _, _ = self.request(
+            "DELETE", "/api/v1/tasks", body=b"{}", origin=None
+        )
+        self.assertEqual(status, 403)
+
+    def test_dashboard_review_actions_record_changes_and_rejection(self):
+        self.store.update_status(self.task["id"], "READY_FOR_REVIEW")
+        origin = f"http://127.0.0.1:{self.server.server_port}"
+        path = f"/api/v1/tasks/{self.task['id']}/review-decision"
+
+        status, _, body = self.request(
+            "POST", path,
+            body=json.dumps({
+                "decision": "request_changes",
+                "reason": "Please add regression coverage for the timeout behavior.",
+            }).encode("utf-8"),
+            origin=origin,
+        )
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertEqual(result["task_status"], "NEEDS_REVIEW")
+        self.assertEqual(self.store.get_task(self.task["id"])["status"], "NEEDS_REVIEW")
+
+        status, _, body = self.request(
+            "POST", path,
+            body=json.dumps({
+                "decision": "reject",
+                "reason": "The proposed approach does not meet the requirement.",
+            }).encode("utf-8"),
+            origin=origin,
+        )
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertEqual(result["task_status"], "CLOSED")
+        self.assertTrue(Path(self.task["worktree"]).is_dir())
+        event_types = [event["type"] for event in self.store.events(self.task["id"])]
+        self.assertIn("HUMAN_REVIEW_CHANGES_REQUESTED", event_types)
+        self.assertIn("HUMAN_REVIEW_REJECTED", event_types)
+
+    def test_dashboard_acceptance_action_requires_evidence_and_review_ready_status(self):
+        origin = f"http://127.0.0.1:{self.server.server_port}"
+        path = f"/api/v1/tasks/{self.task['id']}/review-decision"
+        self.store.update_status(self.task["id"], "READY_FOR_REVIEW")
+        status, _, body = self.request(
+            "POST", path,
+            body=json.dumps({
+                "decision": "accept_criterion",
+                "criterion": 1,
+                "evidence": "I reviewed criterion one against the current diff.",
+            }).encode("utf-8"),
+            origin=origin,
+        )
+        self.assertEqual(status, 200)
+        result = json.loads(body)
+        self.assertEqual(result["decision"], "accept_criterion")
+        self.assertEqual(result["report"]["acceptance"]["accepted_current"], [1])
+
+    def test_dashboard_approve_endpoint_cannot_bypass_finish_gate(self):
+        self.store.update_status(self.task["id"], "READY_FOR_REVIEW")
+        origin = f"http://127.0.0.1:{self.server.server_port}"
+        status, _, body = self.request(
+            "POST", f"/api/v1/tasks/{self.task['id']}/review-decision",
+            body=json.dumps({"decision": "approve"}).encode("utf-8"),
+            origin=origin,
+        )
+        self.assertEqual(status, 409)
+        result = json.loads(body)
+        self.assertFalse(result["ok"])
+        self.assertEqual(self.store.get_task(self.task["id"])["status"], "READY_FOR_REVIEW")
+
 
     def test_dashboard_api_rejects_missing_or_wrong_token(self):
         status, _, body = self.request("GET", "/api/v1/tasks", authenticated=False)

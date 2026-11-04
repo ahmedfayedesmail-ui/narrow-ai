@@ -1,3 +1,12 @@
+## Beta follow-up — explicit human review decisions
+
+- The local Control Center now supports human evidence entry per acceptance criterion, request-changes, reject, and approve-and-finish actions.
+- The authenticated decision API requires a same-origin request, the one-time dashboard token, a bounded JSON body, and the per-task execution lock.
+- Request changes records a reason and returns the task to `NEEDS_REVIEW`; rejection records a reason and closes the task without deleting its workspace.
+- Approval is disabled until current signed checks, scope/integrity gates, and human acceptance are ready; it then invokes the independent `narrow finish` gate again.
+- Security-sensitive path findings require a separate acknowledgement and a written human review note.
+- Added `narrow review-action` for the same auditable decisions from the CLI. No API action launches an agent or executes commands.
+
 ## Beta follow-up — verification-gated repair continuation
 
 - Before any automatic repair retry, `narrow drive` now rebuilds the deterministic review packet for the current workspace.

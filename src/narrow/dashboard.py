@@ -1,8 +1,8 @@
-"""Loopback-only, read-only NARROW task dashboard.
+"""Loopback-only NARROW Control Center with authenticated human review decisions.
 
 The dashboard intentionally exposes summaries, never check output, raw notes,
 provider prompts, tool payloads, environment values, or credential material.
-It has no mutation endpoints and refuses non-loopback clients and Host headers.
+Human decisions require a same-origin authenticated POST; agent execution and shell commands are never exposed over HTTP.
 """
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
 from urllib.parse import urlsplit
 
-from .review_gate import build_review_report
+from .review_gate import apply_human_review_decision, build_review_report
 
 from .core import (
     NarrowError,
@@ -78,6 +78,17 @@ _HTML = """<!doctype html>
           <div class="subhead">Verification</div><div id="checks" class="check-list"><span class="muted">No task selected</span></div>
           <div class="subhead">Automated review</div>
           <div id="review-result" class="review-result" aria-live="polite"><span class="muted">Review evidence not loaded.</span></div>
+          <div class="subhead">Human decision</div>
+          <div id="acceptance-review" class="acceptance-review"><span class="muted">Select a task to review its acceptance criteria.</span></div>
+          <label class="decision-label" for="review-reason">Review note / requested changes</label>
+          <textarea id="review-reason" class="decision-input" rows="3" maxlength="4000" placeholder="Explain the changes needed, rejection reason, or sensitive paths you reviewed."></textarea>
+          <label class="risk-ack-row"><input id="review-risk-ack" type="checkbox"><span>I personally reviewed the security-sensitive paths shown above.</span></label>
+          <div class="decision-actions">
+            <button id="request-changes" class="decision-button secondary" type="button">Request changes</button>
+            <button id="reject-task" class="decision-button danger" type="button">Reject</button>
+            <button id="approve-task" class="decision-button primary" type="button" disabled>Approve &amp; finish</button>
+          </div>
+          <div id="decision-feedback" class="decision-feedback" role="status" aria-live="polite"></div>
           <div class="subhead">Change review</div>
           <div id="diff-meta" class="diff-meta">Select a task to preview its changes.</div>
           <pre id="diff-content" class="diff-view" tabindex="0" aria-label="Task unified diff">No diff loaded.</pre>
@@ -95,6 +106,7 @@ _HTML = """<!doctype html>
 _CSS = r"""
 :root{color-scheme:dark;--bg:#0b0d12;--panel:#121722;--panel2:#161d29;--line:#263142;--text:#f1f4fa;--muted:#929db0;--quiet:#667286;--accent:#e6a34b;--green:#60d6a5;--red:#ff7b78;--blue:#8ab6ff;--radius:18px;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
 *{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 80% 0%,#202137 0,transparent 38%),var(--bg);color:var(--text);min-height:100vh}.shell{max-width:1440px;margin:auto;padding:0 32px}.topbar{height:76px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #202938}.brand{display:flex;gap:11px;align-items:center;color:var(--text);font-weight:800;letter-spacing:.16em;text-decoration:none}.brand-mark{width:34px;height:34px;border-radius:11px;background:linear-gradient(135deg,#f1b65e,#cf763e);color:#20170e;display:grid;place-items:center;font-weight:900;letter-spacing:0}.live{display:flex;align-items:center;gap:9px;color:#94a0b3;font-size:10px;letter-spacing:.13em}.live #updated{margin-left:12px;letter-spacing:0;font-size:11px;color:#748096}.pulse,.refresh-dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 12px #60d6a566}.hero{display:flex;justify-content:space-between;align-items:center;padding:54px 0 38px}.eyebrow{margin:0 0 10px;color:var(--accent);font-size:10px;font-weight:800;letter-spacing:.2em}.hero h1{margin:0;font-size:clamp(38px,6vw,66px);line-height:1.02;letter-spacing:-.055em}.hero h1 span{color:#e7ad5e}.lede{max-width:540px;color:var(--muted);line-height:1.7;font-size:14px}.hero-badge{width:116px;height:116px;border:1px solid #55412c;border-radius:50%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;color:#d2b18a;font-size:9px;text-align:center;letter-spacing:.12em}.badge-ring{width:39px;height:39px;display:grid;place-items:center;border:1px solid var(--accent);border-radius:13px;color:var(--accent);font-weight:900;font-size:18px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}.metric,.panel,.task-card{background:linear-gradient(145deg,#151c28,#10151e);border:1px solid var(--line);border-radius:var(--radius)}.metric{padding:20px}.metric span,.detail-stats span{display:block;color:var(--muted);font-size:9px;letter-spacing:.15em;font-weight:750}.metric strong{display:block;margin:10px 0 2px;font-size:31px;letter-spacing:-.04em}.metric small{color:var(--quiet);font-size:11px}.section-head{display:flex;align-items:end;justify-content:space-between;margin:42px 0 16px}.section-head h2,.panel h2{margin:0;font-size:22px;letter-spacing:-.03em}.refresh-label{color:var(--quiet);font-size:11px;display:flex;align-items:center;gap:8px}.review-queue{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:0 0 22px}.review-card{display:flex;align-items:center;justify-content:space-between;gap:12px;text-align:left;width:100%;padding:14px 16px;background:linear-gradient(145deg,#1d2532,#121923);border:1px solid #5c4730;border-radius:14px;color:var(--text);cursor:pointer}.review-card:hover,.review-card.selected{border-color:var(--accent);transform:translateY(-1px)}.review-card strong{display:block;font-size:12px}.review-card small{display:block;margin-top:5px;color:var(--muted);font-size:10px}.review-result{display:grid;gap:8px;margin:8px 0 14px}.review-decision{padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:#0d121a;font-size:11px}.review-decision strong{display:block;margin-bottom:4px}.review-line{padding:8px 10px;border-radius:8px;background:#0d121a;color:var(--muted);font-size:10px;line-height:1.5}.review-line.blocked{border-left:2px solid var(--red)}.review-line.warning{border-left:2px solid var(--accent)}.review-line.pass{border-left:2px solid var(--green)}
+.acceptance-review{display:grid;gap:9px;margin:8px 0 14px}.criterion-card{padding:11px;background:#0d121a;border:1px solid var(--line);border-radius:10px}.criterion-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;font-size:11px;line-height:1.5}.criterion-state{font-size:9px;color:var(--quiet);white-space:nowrap}.criterion-state.confirmed{color:var(--green)}.criterion-evidence{width:100%;box-sizing:border-box;margin-top:9px;min-height:54px;resize:vertical;padding:9px;border:1px solid #303a4a;border-radius:8px;background:#090e15;color:var(--text);font:inherit;font-size:11px;line-height:1.5}.criterion-submit{margin-top:8px;padding:7px 10px;background:#243548;border:1px solid #3c536d;border-radius:8px;color:#e4edf8;font-size:10px;font-weight:750;cursor:pointer}.criterion-submit:disabled{opacity:.5;cursor:not-allowed}.decision-label{display:block;color:var(--muted);font-size:10px;margin:12px 0 6px}.decision-input{width:100%;box-sizing:border-box;resize:vertical;min-height:64px;padding:10px;border:1px solid #303a4a;border-radius:9px;background:#090e15;color:var(--text);font:inherit;font-size:11px;line-height:1.5}.risk-ack-row{display:flex;gap:8px;align-items:flex-start;margin:10px 0;color:var(--muted);font-size:10px;line-height:1.5}.risk-ack-row input{accent-color:var(--accent);margin:1px 0 0}.risk-ack-row[hidden]{display:none}.decision-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}.decision-button{padding:9px 12px;border-radius:9px;border:1px solid var(--line);font-size:10px;font-weight:800;cursor:pointer}.decision-button:disabled{opacity:.4;cursor:not-allowed}.decision-button.primary{background:#254b3d;border-color:#3c8064;color:#b8f1d6}.decision-button.secondary{background:#28364a;border-color:#405675;color:#d9e7fb}.decision-button.danger{background:#482927;border-color:#814540;color:#ffd1cb}.decision-feedback{min-height:16px;margin-top:8px;color:var(--muted);font-size:10px;line-height:1.5}
 .diff-meta{font-size:10px;color:var(--muted);line-height:1.6;margin-bottom:9px}.diff-view{max-height:520px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#080b10;border:1px solid var(--line);border-radius:12px;padding:14px;color:#cbd5e1;font:11px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace;margin:0}.diff-view:empty{display:none}.review-badge{flex:none;padding:6px 9px;border-radius:18px;background:#253b32;color:#83e2b8;font-size:9px;font-weight:800}.review-badge.attention{background:#482927;color:#ff9e91}
 .task-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}.task-card{padding:17px;text-align:left;color:inherit;cursor:pointer;min-height:150px;transition:border-color .18s,transform .18s;background-color:transparent;width:100%}.task-card:hover,.task-card.selected{border-color:#b98043;transform:translateY(-2px)}.task-card .card-top{display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:15px}.task-title{font-weight:700;font-size:14px;line-height:1.4}.task-goal{font-size:12px;color:var(--muted);line-height:1.55;margin:9px 0 16px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}.card-meta{color:var(--quiet);font-size:10px;display:flex;justify-content:space-between;gap:8px}.status-pill{padding:6px 9px;border-radius:20px;font-size:9px;font-weight:800;letter-spacing:.06em;white-space:nowrap;background:#293141;color:#c6d0df}.status-pill.running,.status-pill.in_progress{background:#173b36;color:#81e2b9}.status-pill.ready_for_review,.status-pill.ready_for_human_review,.status-pill.verified_complete{background:#203e32;color:#81e2b9}.status-pill.needs_review,.status-pill.blocked{background:#482927;color:#ff9e91}.status-pill.pending{background:#3e3324;color:#eec17e}.detail-layout{display:grid;grid-template-columns:1.15fr .85fr;gap:12px;margin-top:14px}.panel{padding:22px;min-width:0}.panel-head{display:flex;justify-content:space-between;gap:12px;align-items:center}.detail-goal{color:var(--muted);font-size:13px;line-height:1.7;min-height:43px}.detail-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;padding:15px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.detail-stats strong{display:block;margin-top:8px;font-size:18px}.subhead{margin:19px 0 10px;color:#dce2ec;font-size:12px;font-weight:750}.scope-list,.check-list{display:grid;gap:8px}.scope-row,.check-row{display:flex;justify-content:space-between;gap:10px;font-size:11px;padding:9px 11px;border-radius:9px;background:#0d121a;color:#b9c3d2}.scope-row span:last-child,.check-row span:last-child{color:var(--muted)}.pass{color:var(--green)!important}.fail{color:var(--red)!important}.lock{font-size:8px;letter-spacing:.1em;color:var(--quiet);text-align:right}.timeline{display:grid;gap:0;margin-top:18px;max-height:430px;overflow:auto}.event{display:grid;grid-template-columns:13px 1fr;gap:10px;padding:0 0 16px}.event-rail{position:relative;display:flex;justify-content:center}.event-rail:after{content:"";position:absolute;top:9px;bottom:-2px;width:1px;background:#303b4d}.event:last-child .event-rail:after{display:none}.event-dot{width:7px;height:7px;border-radius:50%;background:var(--accent);margin-top:4px;z-index:1}.event-name{font-size:11px;font-weight:750}.event-time{font-size:9px;color:var(--quiet);margin-top:4px}.muted,.empty{color:var(--quiet);font-size:12px}.empty{padding:24px;border:1px dashed var(--line);border-radius:13px;text-align:center}.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#5b2828;color:#fff;padding:12px 17px;border:1px solid #a14b46;border-radius:12px;font-size:12px;max-width:90vw}footer{padding:28px 0 36px;margin-top:34px;border-top:1px solid #202938;color:var(--quiet);font-size:9px;letter-spacing:.07em;display:flex;justify-content:space-between;gap:10px}
 @media(max-width:850px){.shell{padding:0 18px}.task-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.detail-layout{grid-template-columns:1fr}.hero{padding-top:38px}.hero-badge{width:92px;height:92px}.metrics{gap:8px}.metric{padding:14px}.metric strong{font-size:26px}.metric span{font-size:8px}}
@@ -123,6 +135,34 @@ _JS = r"""
     const response = await fetch(url, {cache:'no-store', credentials:'same-origin', headers:{'X-NARROW-Token':token}});
     if (!response.ok) throw new Error(`Dashboard request failed (${response.status})`);
     return response.json();
+  }
+  async function post(url, payload) {
+    const token = sessionStorage.getItem('narrow.dashboard.token') || '';
+    const response = await fetch(url, {
+      method:'POST', cache:'no-store', credentials:'same-origin',
+      headers:{'X-NARROW-Token':token,'Content-Type':'application/json'},
+      body:JSON.stringify(payload)
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data.message || data.error || `Dashboard decision failed (${response.status})`);
+      error.payload = data;
+      throw error;
+    }
+    return data;
+  }
+  async function submitDecision(decision, payload = {}) {
+    if (!selected) return;
+    setText('decision-feedback','Saving your explicit human decision…');
+    try {
+      const data = await post(`/api/v1/tasks/${encodeURIComponent(selected)}/review-decision`,{decision,...payload});
+      setText('decision-feedback',data.message || 'Decision recorded.');
+      await refresh(true);
+    } catch (error) {
+      setText('decision-feedback',error.message);
+      if (error.payload?.report) renderReview(error.payload.report);
+      await refresh(true);
+    }
   }
   function renderTasks(tasks) {
     const host = $('tasks'); host.replaceChildren();
@@ -167,6 +207,39 @@ _JS = r"""
     const view=$('diff-content');view.textContent=data.diff || 'No textual changes to preview.';
     if(data.unsafe_links.length){view.textContent='Preview withheld: unsafe workspace links or hard-linked files were detected.\n'+data.unsafe_links.join('\n');}
   }
+  function renderAcceptance(items, report, task) {
+    const host=$('acceptance-review');host.replaceChildren();
+    const canReview=['READY_FOR_REVIEW','NEEDS_REVIEW','BLOCKED'].includes(task.status);
+    (items || []).forEach(item=>{
+      const card=create('div','criterion-card');
+      const head=create('div','criterion-head');
+      head.append(create('span','',`${item.index}. ${item.text}`));
+      const state=create('span','criterion-state'+(item.current?' confirmed':''),item.current?'CONFIRMED · CURRENT':item.accepted?'STALE':'PENDING');
+      head.append(state);card.append(head);
+      const evidence=create('textarea','criterion-evidence');
+      evidence.rows=2;evidence.maxLength=4000;
+      evidence.placeholder='What did you personally inspect or verify for this criterion?';
+      evidence.setAttribute('aria-label',`Evidence for criterion ${item.index}`);
+      const button=create('button','criterion-submit',item.current?'Confirmed':'Confirm criterion');
+      button.type='button';button.disabled=task.status!=='READY_FOR_REVIEW' || item.current;
+      button.addEventListener('click',()=>{
+        if(!evidence.value.trim()){setText('decision-feedback','Evidence is required for each criterion.');evidence.focus();return;}
+        submitDecision('accept_criterion',{criterion:item.index,evidence:evidence.value});
+      });
+      card.append(evidence,button);host.append(card);
+    });
+    if(!(items || []).length) host.append(create('div','empty','No acceptance criteria were configured.'));
+    const available=canReview;
+    $('request-changes').disabled=!available;
+    $('reject-task').disabled=!available;
+    $('approve-task').disabled=task.status!=='READY_FOR_REVIEW' || report.decision!=='READY_FOR_FINISH_GATE';
+    if(!available || task.status==='CLOSED' || task.status==='VERIFIED_COMPLETE'){
+      $('request-changes').disabled=true;$('reject-task').disabled=true;$('approve-task').disabled=true;
+    }
+    $('review-risk-ack').checked=false;
+    $('review-risk-ack').disabled=!report.risk_flags.length;
+    $('review-risk-ack').parentElement.hidden=!report.risk_flags.length;
+  }
   function renderDetail(data) {
     const t=data.task; setText('detail-title',t.title); setText('detail-goal',t.goal);
     const status=$('detail-status'); status.textContent=labelStatus(t.status); status.className=`status-pill ${escStatus(t.status)}`;
@@ -194,7 +267,9 @@ _JS = r"""
         renderDetail(detail);
         const reviewKey=`${selected}:${detail.snapshot_hash || "unsafe"}:${detail.task.status}`;
         if(forceDiff || reviewKey!==reviewCacheKey) {
-          renderReview(await get(`/api/v1/tasks/${encodeURIComponent(selected)}/review`));
+          const review=await get(`/api/v1/tasks/${encodeURIComponent(selected)}/review`);
+          renderReview(review);
+          renderAcceptance(detail.acceptance.items,review,detail.task);
           reviewCacheKey=reviewKey;
         }
         const cacheKey=`${selected}:${detail.snapshot_hash || "unsafe"}`;
@@ -202,11 +277,28 @@ _JS = r"""
           renderDiff(await get(`/api/v1/tasks/${encodeURIComponent(selected)}/diff`));
           diffCacheKey=cacheKey;
         }
-      } else {setText('detail-title','No tasks found');setText('detail-goal','Start a task with the NARROW CLI.');setText('diff-meta','No task selected.');setText('diff-content','');$('review-result').replaceChildren(create('span','muted','No task selected.'));}
+      } else {setText('detail-title','No tasks found');setText('detail-goal','Start a task with the NARROW CLI.');setText('diff-meta','No task selected.');setText('diff-content','');$('review-result').replaceChildren(create('span','muted','No task selected.'));$('acceptance-review').replaceChildren(create('span','muted','No task selected.'));$('request-changes').disabled=true;$('reject-task').disabled=true;$('approve-task').disabled=true;}
       $('error').hidden=true;
     } catch(error) { $('error').textContent=error.message || 'Unable to load the local task journal.'; $('error').hidden=false; }
     finally { refreshing=false; }
   }
+  $('request-changes').addEventListener('click',()=>{
+    const reason=$('review-reason').value.trim();
+    if(!reason){setText('decision-feedback','Explain what must change before requesting revisions.');$('review-reason').focus();return;}
+    submitDecision('request_changes',{reason});
+  });
+  $('reject-task').addEventListener('click',()=>{
+    const reason=$('review-reason').value.trim();
+    if(!reason){setText('decision-feedback','A reason is required to reject and close a task.');$('review-reason').focus();return;}
+    if(!window.confirm('Reject and close this task? Its workspace and evidence will be preserved.'))return;
+    submitDecision('reject',{reason});
+  });
+  $('approve-task').addEventListener('click',()=>{
+    const acknowledge=$('review-risk-ack').checked;
+    const reason=$('review-reason').value.trim();
+    if(!window.confirm('Approve this work and run the independent NARROW finish gate?'))return;
+    submitDecision('approve',{acknowledge_risks:acknowledge,reason});
+  });
   refresh();window.setInterval(refresh,3000);
 })();
 """
@@ -416,7 +508,19 @@ def task_detail(store: Store, task_id: str) -> dict[str, Any]:
             "denied": scope["denied"][:30],
             "unsafe_links": unsafe[:20],
         },
-        "acceptance": {"done": acceptance_done, "total": len(task["acceptance"])},
+        "acceptance": {
+            "done": acceptance_done,
+            "total": len(task["acceptance"]),
+            "items": [
+                {
+                    "index": index,
+                    "text": item.get("text", ""),
+                    "accepted": bool(item.get("accepted")),
+                    "current": bool(item.get("accepted") and current_snapshot and item.get("snapshot_hash") == current_snapshot),
+                }
+                for index, item in enumerate(task["acceptance"], 1)
+            ],
+        },
         "checks": {"passed": sum(1 for row in checks if row["passed"] and row["current_snapshot"]), "total": len(checks), "items": checks},
         "activity": activity,
     }
@@ -451,6 +555,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
             if host not in allowed:
                 return False
             origin = self.headers.get("Origin")
+            if self.command in {"POST", "PUT", "DELETE"} and not origin:
+                return False
             if origin:
                 parsed = urlsplit(origin)
                 if parsed.scheme != "http" or parsed.netloc.lower() not in allowed:
@@ -552,9 +658,52 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         if not self._authorized_api_request():
-            self._send(b"Unauthorized.\n", "text/plain; charset=utf-8", 403)
+            self._json({"error": "unauthorized"}, 403)
             return
-        self._send(b"Read-only dashboard.\n", "text/plain; charset=utf-8", 405)
+        path = urlsplit(self.path).path
+        prefix = "/api/v1/tasks/"
+        suffix = "/review-decision"
+        if not (path.startswith(prefix) and path.endswith(suffix)):
+            self._json({"error": "not_found"}, 404)
+            return
+        task_id = path[len(prefix):-len(suffix)].rstrip("/")
+        if not _TASK_ID.fullmatch(task_id):
+            self._json({"error": "invalid_task_id"}, 400)
+            return
+        if self.headers.get("Content-Type", "").split(";", 1)[0].strip().lower() != "application/json":
+            self._json({"error": "content_type_must_be_application_json"}, 415)
+            return
+        length_header = self.headers.get("Content-Length", "")
+        if not length_header.isdigit():
+            self._json({"error": "content_length_required"}, 411)
+            return
+        length = int(length_header)
+        if length < 2 or length > 16 * 1024:
+            self._json({"error": "invalid_review_decision_body_size"}, 413)
+            return
+        try:
+            payload = json.loads(self.rfile.read(length))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            self._json({"error": "invalid_json"}, 400)
+            return
+        if not isinstance(payload, dict):
+            self._json({"error": "review_decision_must_be_an_object"}, 400)
+            return
+        try:
+            result = apply_human_review_decision(
+                self.server.store,
+                task_id,
+                payload.get("decision"),
+                reason=payload.get("reason", ""),
+                criterion=payload.get("criterion"),
+                evidence=payload.get("evidence", ""),
+                acknowledge_risks=payload.get("acknowledge_risks", False),
+            )
+        except NarrowError as exc:
+            self._json({"error": "review_decision_rejected", "message": str(exc)}, 409)
+            return
+        status = int(result.pop("http_status", 200))
+        self._json(result, status)
 
     def do_PUT(self) -> None:  # noqa: N802
         if not self._authorized_api_request():

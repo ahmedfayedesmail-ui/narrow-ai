@@ -56,6 +56,18 @@ class CliTests(unittest.TestCase):
         history = parser.parse_args(["contract-history", "--task", "task_123", "--json"])
         self.assertEqual(history.task, "task_123")
         self.assertTrue(history.json)
+        decision = parser.parse_args([
+            "review-action", "--decision", "request_changes", "--task", "task_123",
+            "--reason", "Add a regression test.", "--json",
+        ])
+        self.assertEqual(decision.decision, "request_changes")
+        self.assertEqual(decision.task, "task_123")
+        self.assertTrue(decision.json)
+        approve = parser.parse_args([
+            "review-action", "--decision", "approve", "--acknowledge-risks",
+        ])
+        self.assertEqual(approve.decision, "approve")
+        self.assertTrue(approve.acknowledge_risks)
         drive = parser.parse_args(["drive", "--provider", "my-agent"])
         self.assertEqual(drive.provider, "my-agent")
 
