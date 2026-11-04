@@ -236,3 +236,52 @@ def build_review_report(store: Store, task_id: str) -> dict[str, Any]:
         "blockers": blockers,
         "next_action": next_action,
     }
+
+
+
+def evaluate_repair_continuation(report: dict[str, Any]) -> dict[str, str]:
+    """Decide whether a failed-check repair loop may safely continue.
+
+    This is a narrow policy gate, not an approval decision. It only allows
+    another bounded repair attempt when the latest read-only review report is
+    structurally valid, has no hard blockers, and has no security-sensitive
+    paths requiring focused human scrutiny.
+    """
+    if (
+        not isinstance(report, dict)
+        or report.get("schema") != "narrow.review-report.v1"
+        or report.get("automatic_approval") is not False
+        or report.get("state_mutated") is not False
+        or report.get("commands_executed") is not False
+    ):
+        return {
+            "decision": "STOP",
+            "reason": "The deterministic review packet is missing, malformed, or violated its read-only contract.",
+        }
+
+    blockers = report.get("blockers")
+    risks = report.get("risk_flags")
+    if not isinstance(blockers, list) or not isinstance(risks, list):
+        return {
+            "decision": "STOP",
+            "reason": "The deterministic review packet contains malformed safety findings.",
+        }
+    if blockers:
+        return {
+            "decision": "STOP",
+            "reason": "A safety invariant is blocked. Automatic repair is stopped for human investigation.",
+        }
+    if risks:
+        return {
+            "decision": "ESCALATE",
+            "reason": "A security-sensitive path requires focused human scrutiny before another agent attempt.",
+        }
+    if report.get("decision") != "NEEDS_VERIFICATION":
+        return {
+            "decision": "ESCALATE",
+            "reason": "The latest review state is not a plain verification failure eligible for automatic repair.",
+        }
+    return {
+        "decision": "CONTINUE",
+        "reason": "No safety blockers or elevated path-risk flags; one bounded repair attempt may continue.",
+    }
