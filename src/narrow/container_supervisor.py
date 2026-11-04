@@ -22,7 +22,7 @@ from .container_lifecycle import (
 )
 from .core import NarrowError, Store, task_workspace
 from .policy_manifest import _validate_execution_id
-from .agent_runtime import normalize_provider_argv, validate_agent_image
+from .agent_runtime import normalize_provider_argv, validate_agent_image, validate_claude_container_settings
 from .credential_broker import CredentialLease, validate_credential_lease, revoke_credential_lease
 from .policy_manifest import read_policy_manifest
 from .container_hooks import import_container_hook_events
@@ -260,6 +260,11 @@ def _run_container_agent(
             "/run/narrow/claude-settings.json": store.state_dir / "providers" / task_id / "claude-settings.json",
             "/run/narrow/claude-mcp.json": store.state_dir / "providers" / task_id / "claude-mcp.json",
         })
+    if provider == "claude":
+        validate_claude_container_settings(
+            expected_sources["/run/narrow/claude-settings.json"],
+            expected_sources["/run/narrow/claude-mcp.json"],
+        )
     for target, expected_source in expected_sources.items():
         try:
             info = expected_source.lstat()
