@@ -13,13 +13,13 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 - Snapshot-bound checks and human acceptance gate.
 - Bounded generic agent → checks → repair cycle.
 
-## v0.2 — Native provider adapters (implemented; Alpha)
+## v0.2 — Native provider adapters (implemented in the legacy pre-Beta baseline)
 
 - Claude Code and Codex CLI adapters using structured output and resumable session/thread IDs.
 - Sanitized provider event journal and fake-event conformance tests.
 - Provider detection, opt-in version probes, read-only doctor diagnostics, and Work Receipt export.
 
-## v0.3 — Native agent safety hardening (implemented; Alpha)
+## v0.3 — Native agent safety hardening (implemented in the legacy pre-Beta baseline)
 
 - Claude strict shell sandbox required; fail closed if unavailable and prohibit unsandboxed retries.
 - Deny shell reads outside the task working directory and common credential files/secrets to sandboxed subprocesses.
@@ -28,7 +28,7 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 - Fail-closed hooks for selected direct file reads/searches/writes.
 - Codex non-interactive exec with `workspace-write` and approval-deny mode.
 
-## v0.4 — Control surfaces and modern provider controls (implemented; Alpha)
+## v0.4 — Control surfaces and modern provider controls (implemented in the legacy pre-Beta baseline)
 
 - Read-only loopback Control Center for task overview, scope, checks, acceptance, and sanitized activity.
 - Bounded task portfolio command and JSON output.
@@ -36,7 +36,7 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 - Optional Claude Agent/task tool support, dynamic multi-agent mode, and minimized task/subagent lifecycle telemetry.
 - Provider CLI compatibility diagnostics.
 
-## v0.5 — Task execution coordination (implemented; Alpha)
+## v0.5 — Task execution coordination (implemented in the legacy pre-Beta baseline)
 
 - Single-flight OS lock per task across `drive`, direct `run` / `resume`, `verify`, and `finish`.
 - First-level agent and verification processes inherit the lease handle. POSIX regression coverage proves the lock remains held after the NARROW-side descriptor closes while the child still has its inherited descriptor.
@@ -51,7 +51,7 @@ The roadmap is deliberately gated by safety evidence. A milestone is not complet
 - Windows first-level child launch uses CREATE_SUSPENDED, kill-on-close Job assignment, explicit membership verification, and primary-thread resume only after assignment.
 
 
-The following capabilities are included in the current Beta preview on `main`; the published v0.5.1 PyPI package remains Alpha:
+The following capabilities are included in the current Beta preview on `main`; the older published v0.5.1 PyPI package predates this source snapshot:
 
 - Project-manifest discovery proposes supported test commands without executing them; config changes require explicit review.
 - Plain-language task proposal can suggest a title, allowed/denied paths, and acceptance criteria. Local Ollama use is optional and loopback-only; a human must approve the contract before task creation.
