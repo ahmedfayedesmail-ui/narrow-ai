@@ -99,7 +99,7 @@ class ReviewGateTests(unittest.TestCase):
         scope_gate = next(item for item in report["gates"] if item["name"] == "scope")
         self.assertEqual(scope_gate["status"], "BLOCKED")
 
-    def test_credential_like_paths_are_blocked_without_opening_file_contents(self):
+    def test_credential_like_paths_are_blocked_without_exposing_file_contents(self):
         secrets = self.workspace / "src" / "credentials"
         secrets.mkdir()
         (secrets / "provider.pem").write_text("DO_NOT_READ_THIS_TEST_SECRET", encoding="utf-8")
