@@ -15,6 +15,8 @@ from typing import Any
 from .core import (
     NarrowError,
     Store,
+    accept_criterion,
+    finish_task,
     changed_paths,
     classify_paths,
     git_status,
@@ -285,3 +287,134 @@ def evaluate_repair_continuation(report: dict[str, Any]) -> dict[str, str]:
         "decision": "CONTINUE",
         "reason": "No safety blockers or elevated path-risk flags; one bounded repair attempt may continue.",
     }
+
+
+
+def apply_human_review_decision(
+    store: Store,
+    task_id: str,
+    decision: str,
+    *,
+    reason: str = "",
+    criterion: int | None = None,
+    evidence: str = "",
+    acknowledge_risks: bool = False,
+) -> dict[str, Any]:
+    """Apply one explicit human review decision under the task execution lock."""
+    from .locks import task_execution_lock
+
+    if decision not in {"accept_criterion", "approve", "request_changes", "reject"}:
+        raise NarrowError("Review decision must be accept_criterion, approve, request_changes, or reject.")
+    if not isinstance(reason, str) or len(reason) > 4000 or "\\x00" in reason:
+        raise NarrowError("Review reason must be at most 4,000 characters and contain no NUL characters.")
+    if not isinstance(acknowledge_risks, bool):
+        raise NarrowError("acknowledge_risks must be a boolean.")
+
+    with task_execution_lock(store.state_dir, task_id):
+        task = store.get_task(task_id)
+        current_status = task["status"]
+        if current_status in {"VERIFIED_COMPLETE", "CLOSED"}:
+            raise NarrowError("This task is already complete or closed; review decisions are no longer available.")
+
+        if decision == "accept_criterion":
+            if current_status != "READY_FOR_REVIEW":
+                raise NarrowError("Acceptance criteria can be confirmed only while the task is READY_FOR_REVIEW.")
+            if not isinstance(criterion, int) or isinstance(criterion, bool):
+                raise NarrowError("A valid integer criterion index is required.")
+            if not isinstance(evidence, str) or not evidence.strip():
+                raise NarrowError("Human evidence is required for every accepted criterion.")
+            accept_criterion(store, task_id, criterion, evidence)
+            report = build_review_report(store, task_id)
+            return {
+                "schema": "narrow.human-review-decision.v1",
+                "ok": True,
+                "decision": decision,
+                "task_status": store.get_task(task_id)["status"],
+                "report": report,
+                "message": f"Human evidence recorded for criterion {criterion}.",
+            }
+
+        if current_status not in {"READY_FOR_REVIEW", "NEEDS_REVIEW", "BLOCKED"}:
+            raise NarrowError("This task is not in a state that accepts human review decisions.")
+
+        current_snapshot = snapshot_hash(task_workspace(task))
+
+        if decision == "request_changes":
+            if not reason.strip():
+                raise NarrowError("Explain what must change before requesting another revision.")
+            store.update_status(task_id, "NEEDS_REVIEW")
+            store.add_event(task_id, "HUMAN_REVIEW_CHANGES_REQUESTED", {
+                "reason": redact(reason.strip()),
+                "snapshot_hash": current_snapshot,
+            })
+            return {
+                "schema": "narrow.human-review-decision.v1",
+                "ok": True,
+                "decision": decision,
+                "task_status": "NEEDS_REVIEW",
+                "message": "Changes requested. The task is preserved for another bounded work cycle.",
+            }
+
+        if decision == "reject":
+            if not reason.strip():
+                raise NarrowError("A reason is required when rejecting a task.")
+            store.update_status(task_id, "CLOSED")
+            store.add_event(task_id, "HUMAN_REVIEW_REJECTED", {
+                "reason": redact(reason.strip()),
+                "snapshot_hash": current_snapshot,
+            })
+            return {
+                "schema": "narrow.human-review-decision.v1",
+                "ok": True,
+                "decision": decision,
+                "task_status": "CLOSED",
+                "message": "Task rejected and closed. Its workspace and evidence have been preserved.",
+            }
+
+        report = build_review_report(store, task_id)
+        if report["decision"] != "READY_FOR_FINISH_GATE":
+            return {
+                "schema": "narrow.human-review-decision.v1",
+                "ok": False,
+                "http_status": 409,
+                "decision": decision,
+                "task_status": current_status,
+                "report": report,
+                "message": "Approval is unavailable until every automated gate, current check, and human acceptance criterion is ready.",
+            }
+        if report["risk_flags"] and not acknowledge_risks:
+            return {
+                "schema": "narrow.human-review-decision.v1",
+                "ok": False,
+                "http_status": 409,
+                "decision": decision,
+                "task_status": current_status,
+                "report": report,
+                "message": "This change includes security-sensitive paths. Review the flagged paths and explicitly acknowledge them before approval.",
+            }
+        if report["risk_flags"] and not reason.strip():
+            raise NarrowError("A short human review note is required when approving security-sensitive changes.")
+
+        finished, problems = finish_task(store, task_id)
+        if not finished:
+            return {
+                "schema": "narrow.human-review-decision.v1",
+                "ok": False,
+                "http_status": 409,
+                "decision": decision,
+                "task_status": store.get_task(task_id)["status"],
+                "problems": problems,
+                "message": "The independent finish gate rejected this approval.",
+            }
+        store.add_event(task_id, "HUMAN_REVIEW_APPROVED", {
+            "snapshot_hash": current_snapshot,
+            "risk_flags_acknowledged": bool(report["risk_flags"] and acknowledge_risks),
+            "review_note": redact(reason.strip()) if reason.strip() else None,
+        })
+        return {
+            "schema": "narrow.human-review-decision.v1",
+            "ok": True,
+            "decision": decision,
+            "task_status": "VERIFIED_COMPLETE",
+            "message": "Human approval recorded and the independent finish gate passed.",
+        }
