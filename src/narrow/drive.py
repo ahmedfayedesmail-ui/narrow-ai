@@ -385,8 +385,22 @@ def _drive_task_unlocked(
         # Verification failure alone can enter a bounded repair cycle.
         # Scope violations, credential-like paths, unsafe links, or other
         # safety findings must stop/escalate before another agent execution.
-        review_report = build_review_report(store, task_id)
-        repair_gate = evaluate_repair_continuation(review_report)
+        try:
+            review_report = build_review_report(store, task_id)
+            repair_gate = evaluate_repair_continuation(review_report)
+        except Exception as exc:
+            # An unavailable or malformed reviewer is not a reason to trust
+            # another autonomous attempt. Preserve the task and fail closed.
+            store.update_status(task_id, "NEEDS_REVIEW")
+            store.add_event(task_id, "VERIFICATION_REVIEW_GATE_FAILED", {
+                "attempt": attempt,
+                "error_type": type(exc).__name__,
+            })
+            print()
+            print("NARROW stopped automatic repair: the deterministic review gate could not complete.")
+            print("The task is preserved for human review; no additional agent attempt was launched.")
+            return 2
+
         if repair_gate["decision"] != "CONTINUE":
             store.update_status(task_id, "NEEDS_REVIEW")
             store.add_event(task_id, "VERIFICATION_REPAIR_ESCALATED", {
@@ -397,7 +411,8 @@ def _drive_task_unlocked(
                 "risk_codes": [item.get("code", "UNKNOWN") for item in review_report.get("risk_flags", [])[:20]],
                 "snapshot_hash": review_report.get("snapshot_hash"),
             })
-            print("\\nNARROW stopped automatic repair: " + repair_gate["reason"])
+            print()
+            print("NARROW stopped automatic repair: " + repair_gate["reason"])
             print("The task is preserved for human review; no additional agent attempt was launched.")
             return 2
 
