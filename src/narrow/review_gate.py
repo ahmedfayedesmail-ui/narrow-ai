@@ -66,7 +66,7 @@ def _path_risks(paths: list[str]) -> tuple[list[dict[str, Any]], list[dict[str, 
                 "code": "SENSITIVE_FILE_PATH",
                 "severity": "critical",
                 "path": normalized,
-                "detail": "A credential-like file path changed. The reviewer does not open its contents; remove it from the change or handle it through an approved secret-management process.",
+                "detail": "A credential-like file path changed. The reviewer does not display or parse its contents; remove it from the change or handle it through an approved secret-management process.",
             })
             continue
 
