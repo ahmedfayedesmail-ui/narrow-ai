@@ -68,7 +68,7 @@ class CliTests(unittest.TestCase):
         ])
         self.assertEqual(approve.decision, "approve")
         self.assertTrue(approve.acknowledge_risks)
-                drive = parser.parse_args(["drive", "--provider", "my-agent"])
+        drive = parser.parse_args(["drive", "--provider", "my-agent"])
         self.assertEqual(drive.provider, "my-agent")
 
     def test_start_accepts_repeated_scope_and_acceptance_entries(self):
