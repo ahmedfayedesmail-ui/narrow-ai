@@ -96,3 +96,5 @@ The next milestone is evidence-led user testing and closure of these gates—not
 - [Human review guide](HUMAN_REVIEW.md)
 - [Security policy](../SECURITY.md)
 - [Roadmap](ROADMAP.md)
+
+The experimental POSIX/local-Docker agent profile supports either the native Claude or Codex CLI. Claude's direct file tools use the container-mounted NARROW policy hooks, while provider-managed subagents and MCP remain disabled in this profile. No host provider home or global login directory is mounted. The selected API credential is visible to the running provider process and must be treated as exposed to the agent.
