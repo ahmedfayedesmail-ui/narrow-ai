@@ -667,6 +667,8 @@ def claude_settings_path(
     if container_runtime:
         # The outer container profile is the shell/process/filesystem boundary.
         # Direct Claude file tools still pass through the mounted policy hook.
+        # Bypass provider prompts only inside this disposable, restricted container.
+        settings["permissions"]["defaultMode"] = "bypassPermissions"
         settings.pop("sandbox", None)
     path = providers_dir / "claude-settings.json"
     write_internal_file(providers_dir, path.name, json.dumps(settings, indent=2) + "\n")
@@ -731,6 +733,17 @@ def build_provider_command(
         effort=effort,
         ultracode=ultracode,
     )
+    if container_agent and adapter.name == "claude":
+        # Claude must not wait for interactive permission prompts in a one-shot
+        # print-mode run. The bypass is used only inside the digest-pinned,
+        # resource-limited, internal-network-only Docker runtime.
+        try:
+            permission_index = command.index("--permission-mode")
+        except ValueError as exc:
+            raise NarrowError("Claude container command is missing its explicit permission mode.") from exc
+        if permission_index + 1 >= len(command) or command[permission_index + 1] != "default":
+            raise NarrowError("Claude container command has an unexpected starting permission mode.")
+        command[permission_index + 1] = "bypassPermissions"
     if resume and not session_id:
         store.add_event(task_id, "PROVIDER_RESUME_WITH_HANDOFF", {
             "provider": adapter.name,
