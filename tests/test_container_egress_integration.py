@@ -62,9 +62,9 @@ class ContainerEgressDockerE2ETests(unittest.TestCase):
                     store, task["id"], execution_id, proxy_image, ["api.openai.com"]
                 )
                 probe = r'''
+import base64
 import socket
-import urllib.error
-import urllib.request
+import ssl
 from pathlib import Path
 from narrow.agent_entrypoint import assert_no_default_route
 from narrow.egress_proxy import read_token_file
@@ -76,23 +76,52 @@ except OSError:
 else:
     raise SystemExit("direct external TCP connection unexpectedly succeeded")
 token = read_token_file(Path("/run/secrets/proxy-token"))
-proxy = f"http://narrow:{token}@narrow-egress-proxy:3128"
-opener = urllib.request.build_opener(urllib.request.ProxyHandler({"https": proxy}))
+authorization = base64.b64encode(f"narrow:{token}".encode("ascii")).decode("ascii")
+def connect_tunnel(host):
+    sock = socket.create_connection(("narrow-egress-proxy", 3128), timeout=10)
+    request = (
+        f"CONNECT {host}:443 HTTP/1.1\\r\\n"
+        f"Host: {host}:443\\r\\n"
+        f"Proxy-Authorization: Basic {authorization}\\r\\n"
+        "Proxy-Connection: keep-alive\\r\\n\\r\\n"
+    ).encode("ascii")
+    sock.sendall(request)
+    response = bytearray()
+    while b"\\r\\n\\r\\n" not in response and len(response) <= 16 * 1024:
+        chunk = sock.recv(4096)
+        if not chunk:
+            break
+        response.extend(chunk)
+    if len(response) > 16 * 1024 or b"\\r\\n\\r\\n" not in response:
+        sock.close()
+        raise RuntimeError("proxy returned an incomplete CONNECT response")
+    status = bytes(response).split(b"\\r\\n", 1)[0].decode("ascii", "replace")
+    return sock, status
+tunnel, status = connect_tunnel("api.openai.com")
+if " 200 " not in status:
+    tunnel.close()
+    raise SystemExit(f"allowlisted provider CONNECT failed: {status}")
+tls = ssl.create_default_context().wrap_socket(tunnel, server_hostname="api.openai.com")
+tls.sendall(b"GET / HTTP/1.1\\r\\nHost: api.openai.com\\r\\nConnection: close\\r\\n\\r\\n")
+response = bytearray()
+while b"\\r\\n\\r\\n" not in response and len(response) <= 16 * 1024:
+    chunk = tls.recv(4096)
+    if not chunk:
+        break
+    response.extend(chunk)
+tls.close()
+if not response:
+    raise SystemExit("allowlisted provider returned no HTTPS response")
 try:
-    response = opener.open("https://api.openai.com/", timeout=15)
-    response.close()
-except urllib.error.HTTPError as exc:
-    if exc.code >= 500:
-        raise
-except Exception as exc:
-    raise SystemExit(f"allowlisted provider tunnel failed: {type(exc).__name__}: {exc}")
-try:
-    opener.open("https://example.com/", timeout=5)
-except urllib.error.URLError as exc:
-    if "403" not in str(exc):
-        raise SystemExit(f"denied destination did not fail at proxy policy: {exc}")
-else:
-    raise SystemExit("non-allowlisted destination unexpectedly passed the proxy")
+    provider_status = int(bytes(response).split(b"\\r\\n", 1)[0].split()[1])
+except (ValueError, IndexError):
+    raise SystemExit("allowlisted provider returned a malformed HTTPS status line")
+if provider_status >= 500:
+    raise SystemExit(f"allowlisted provider returned HTTP {provider_status}")
+denied, denied_status = connect_tunnel("example.com")
+denied.close()
+if " 403 " not in denied_status:
+    raise SystemExit(f"non-allowlisted destination was not denied by proxy policy: {denied_status}")
 print("proxy-only egress smoke passed")
 '''
                 command = [
