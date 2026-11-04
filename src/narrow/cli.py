@@ -47,6 +47,7 @@ from .dashboard import run_dashboard
 from .locks import task_execution_lock
 from .sandbox import prepare_sandbox_command
 from .container_recovery import recover_agent_execution
+from .review_gate import build_review_report
 
 
 def _find_root() -> Path:
@@ -841,6 +842,34 @@ def cmd_dashboard(args: argparse.Namespace) -> int:
     return run_dashboard(_store(), port=args.port, open_browser=args.open)
 
 
+def cmd_review(args: argparse.Namespace) -> int:
+    """Print a deterministic, read-only review packet for one task."""
+    report = build_review_report(_store(), args.task)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 2 if report["decision"] == "BLOCKED" else 0
+
+    task = report["task"]
+    print(f"NARROW review — {task['title']} [{task['id']}]")
+    print(f"Decision: {report['decision']}")
+    print("Automatic approval: DISABLED")
+    print("Read-only: no task state changed and no commands were executed.")
+    print(f"Changed files: {report['changed_files']['total']}")
+    print(f"Verification: {report['verification']['passing_current']}/{report['verification']['configured']} current signed checks")
+    print(f"Human acceptance: {len(report['acceptance']['accepted_current'])}/{report['acceptance']['total']} current criteria")
+    for section, items in (("Automated gates", report["gates"]), ("Blockers", report["blockers"]), ("Human scrutiny flags", report["risk_flags"])):
+        print(f"\n{section}:")
+        if not items:
+            print("  None")
+        for item in items:
+            detail = item.get("detail", "")
+            if item.get("path"):
+                detail = f"{item['path']}: {detail}"
+            print(f"  [{item.get('status', item.get('severity', 'INFO'))}] {item.get('name', item.get('code', 'finding'))}: {detail}")
+    print(f"\nNext action: {report['next_action']}")
+    return 2 if report["decision"] == "BLOCKED" else 0
+
+
 def cmd_finish(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj: Store | None = None, _task: dict[str, Any] | None = None) -> int:
     if _lock_fd is None:
         store_obj = _store_obj or _store()
@@ -1035,6 +1064,11 @@ def build_parser() -> argparse.ArgumentParser:
     recover.add_argument("--execution", required=True, help="Exact execution UUID to recover.")
     recover.add_argument("--yes", action="store_true", help="Confirm cleanup without an interactive prompt.")
     recover.set_defaults(func=cmd_recover_agent)
+
+    review = sub.add_parser("review", help="Run a deterministic, read-only review of task evidence and risk.")
+    review.add_argument("--task")
+    review.add_argument("--json", action="store_true", help="Emit the complete sanitized review packet as JSON.")
+    review.set_defaults(func=cmd_review)
 
     finish = sub.add_parser("finish", help="Mark verified completion only when all gates pass.")
     finish.add_argument("--task")
