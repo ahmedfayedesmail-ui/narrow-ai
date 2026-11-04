@@ -545,6 +545,7 @@ def run_provider_container_agent(
 
     manifest = write_policy_manifest(store, task_id, execution)
     lease = issue_credential_lease(store, provider, task_id, execution)
+    supervisor_started = False
     try:
         proxy_runtime = provision_execution_egress_proxy(
             store, task_id, execution, proxy_image, allowed_hosts
@@ -572,6 +573,7 @@ def run_provider_container_agent(
             "allowed_hosts": list(proxy_runtime.allowed_hosts),
             "network_model": "internal-agent-network-plus-proxy-only-uplink",
         })
+        supervisor_started = True
         return run_container_agent(
             command,
             store=store,
@@ -588,7 +590,7 @@ def run_provider_container_agent(
         # The supervisor revokes this lease during normal finalization. If it
         # rejects before entering its managed process/finalizer, revoke it here.
         try:
-            if lease.path.exists() or lease.path.is_symlink():
+            if not supervisor_started and (lease.path.exists() or lease.path.is_symlink()):
                 revoke_credential_lease(lease)
         except Exception as exc:
             cleanup_errors.append("credential-revocation:" + type(exc).__name__)
