@@ -105,6 +105,14 @@ The contract proposal does not silently approve scope. NARROW prints the propose
 6. **Verify and repair.** Explicitly configured checks run under a bounded repair budget. A failure can trigger a limited repair attempt; repeated failure becomes a blocked/review state.
 7. **Require human acceptance.** NARROW does not equate an agent saying “done” or a green test with semantic correctness. A human reviews the diff and confirms acceptance criteria before `finish` can mark the task verified.
 
+## Deterministic review gate
+
+Run `narrow review` after an agent finishes its bounded work cycle. The command builds a read-only evidence packet and supports `--json` for automation. The same report is available in the local Control Center under **Automated review**.
+
+The deterministic reviewer checks task-contract integrity, unsafe workspace links and hard links, allowed/denied path scope, change-count budget, tracked-diff whitespace hygiene, original-checkout invariants, task branch/HEAD invariants, signed verification evidence bound to the current snapshot and configured command, and human acceptance freshness. It flags credential-like paths as blockers without opening their contents and highlights security/deployment/workflow/authentication changes for focused scrutiny.
+
+Decisions mean: `BLOCKED` requires fixing a safety invariant; `NEEDS_VERIFICATION` requires fresh passing checks; `HUMAN_REVIEW_REQUIRED` means machine gates are clear but human acceptance is incomplete; `READY_FOR_FINISH_GATE` means run `narrow finish` for an independent final recheck. A report never approves a change, executes a test, modifies task state, merges, commits, or deploys. It is deterministic evidence triage, not an LLM correctness judge or proof of semantic correctness.
+
 ## Diff review and human review queue
 
 The local Control Center now shows tasks waiting for review and a bounded unified diff preview for the selected task. It labels changes against the task allow/deny contract and withholds previews when unsafe workspace links or hard-linked files are detected. The preview is read-only and truncates at 96 KiB; it never executes code or sends diffs to a remote service.
