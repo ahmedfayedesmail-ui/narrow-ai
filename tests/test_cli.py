@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import unittest
 
+from narrow import __version__
 from narrow.cli import build_parser
 
 
 class CliTests(unittest.TestCase):
+    def test_product_version_is_1_0_0(self):
+        self.assertEqual(__version__, "1.0.0")
+
     def test_run_and_resume_accept_agent_command(self):
         parser = build_parser()
         run = parser.parse_args(["run", "--", "claude"])
