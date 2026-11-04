@@ -47,7 +47,7 @@ from .dashboard import run_dashboard
 from .locks import task_execution_lock
 from .sandbox import prepare_sandbox_command
 from .container_recovery import recover_agent_execution
-from .review_gate import build_review_report
+from .review_gate import apply_human_review_decision, build_review_report
 
 
 def _find_root() -> Path:
@@ -870,6 +870,31 @@ def cmd_review(args: argparse.Namespace) -> int:
     return 2 if report["decision"] == "BLOCKED" else 0
 
 
+def cmd_review_action(args: argparse.Namespace) -> int:
+    store = _store()
+    result = apply_human_review_decision(
+        store,
+        store.get_task(args.task)["id"],
+        args.decision,
+        reason=args.reason or "",
+        criterion=args.criterion,
+        evidence=args.evidence or "",
+        acknowledge_risks=args.acknowledge_risks,
+    )
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=2))
+    else:
+        print(result["message"])
+        print(f"Task status: {result['task_status']}")
+        if result.get("report"):
+            print(f"Review state: {result['report']['decision']}")
+            print(f"Next action: {result['report']['next_action']}")
+        if result.get("problems"):
+            for problem in result["problems"]:
+                print(f"  - {problem}")
+    return 0 if result["ok"] else 2
+
+
 def cmd_finish(args: argparse.Namespace, _lock_fd: int | None = None, _store_obj: Store | None = None, _task: dict[str, Any] | None = None) -> int:
     if _lock_fd is None:
         store_obj = _store_obj or _store()
@@ -1069,6 +1094,16 @@ def build_parser() -> argparse.ArgumentParser:
     review.add_argument("--task")
     review.add_argument("--json", action="store_true", help="Emit the complete sanitized review packet as JSON.")
     review.set_defaults(func=cmd_review)
+
+    review_action = sub.add_parser("review-action", help="Record an explicit human review decision for a task.")
+    review_action.add_argument("--decision", required=True, choices=("accept_criterion", "approve", "request_changes", "reject"))
+    review_action.add_argument("--task")
+    review_action.add_argument("--criterion", type=int, help="Required with accept_criterion.")
+    review_action.add_argument("--evidence", help="Required with accept_criterion; describe the human verification.")
+    review_action.add_argument("--reason", help="Required with request_changes/reject and when acknowledging sensitive approval.")
+    review_action.add_argument("--acknowledge-risks", action="store_true", help="Explicitly acknowledge the sensitive paths shown by narrow review.")
+    review_action.add_argument("--json", action="store_true", help="Emit the resulting human decision record as JSON.")
+    review_action.set_defaults(func=cmd_review_action)
 
     finish = sub.add_parser("finish", help="Mark verified completion only when all gates pass.")
     finish.add_argument("--task")
