@@ -17,4 +17,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Explain retirement
-        run: echo "This v0.5.0 publishing workflow is retired. Use the current Beta release process instead."
+        run: echo "This v0.5.0 publishing workflow is retired. Use the current release process instead."
