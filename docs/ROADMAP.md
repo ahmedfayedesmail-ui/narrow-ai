@@ -95,3 +95,10 @@ The Beta preview on `main` now includes the opt-in POSIX/local-Docker Codex cont
 - Migration/backward-compatibility policy for local state.
 - Independent security review of autonomous execution path.
 - Clear guarantee matrix distinguishing verified behavior from best-effort monitoring.
+
+## Beta follow-up — dual-provider agent container runtime
+
+- The opt-in POSIX/local-Docker agent image now contains both pinned native Codex and Claude CLIs.
+- The host-supervised dual-network/proxy runtime accepts either native provider, using only that provider's explicitly selected API key and no host provider home/login profile.
+- Claude's container-specific direct-file hooks use the read-only task policy manifest; provider-managed Task/subagent tools and MCP are disabled in this profile.
+- The runtime remains experimental and does not provide a MicroVM. The Docker daemon and host kernel remain trusted. No live authenticated account run is implied by image smoke tests or proxy E2E tests.
