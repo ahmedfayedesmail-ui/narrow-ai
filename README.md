@@ -17,7 +17,7 @@ It works with the coding agents you already have. NARROW itself does not require
 - Optional Docker/Podman verification is network-disabled by default and resource-limited.
 - An opt-in POSIX/local-Docker Codex container runtime uses a separate proxy sidecar, execution-scoped networks, digest-pinned images, mounted short-lived credentials, and supervised cleanup.
 
-The Codex container profile remains experimental and opt-in. Its Docker egress acceptance job is pending on the merged main snapshot. A live authenticated Codex account run is not required for the Beta label by the project owner's decision, and no live run is claimed.
+The Codex container profile remains experimental and opt-in. Its real Docker proxy-only egress acceptance job passed on merged-main CI run [#41779875499](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41779875499). A live authenticated Codex account run is not required for the Beta label by the project owner's decision, and no live run is claimed.
 
 ## What's new in v0.5.0
 
