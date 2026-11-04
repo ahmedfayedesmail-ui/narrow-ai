@@ -158,13 +158,26 @@ def _run_container_agent(
         raise
     except OSError as exc:
         raise NarrowError("Could not prepare the private task-scoped container home.") from exc
+    entrypoint_prefix = command[image_index + 1:image_index + 10]
+    if (
+        len(entrypoint_prefix) != 9
+        or entrypoint_prefix[:3] != ["-m", "narrow.agent_entrypoint", "--provider"]
+        or entrypoint_prefix[4:] != [
+            "--credential-file", "/run/secrets/provider-api-key",
+            "--proxy-token-file", "/run/secrets/proxy-token", "--",
+        ]
+    ):
+        raise NarrowError("Docker agent must invoke the constrained NARROW credential and proxy-token entrypoint.")
+    provider = entrypoint_prefix[3]
+    if provider not in {"claude", "codex"}:
+        raise NarrowError("Docker supervisor supports only the native Claude and Codex providers.")
     if (
         not isinstance(credential_lease, CredentialLease)
-        or credential_lease.provider != "codex"
+        or credential_lease.provider != provider
         or credential_lease.task_id != task_id
         or credential_lease.execution_id != expected_execution
     ):
-        raise NarrowError("Docker supervisor requires the exact Codex credential lease for this execution.")
+        raise NarrowError("Docker supervisor requires the exact selected-provider credential lease for this execution.")
     secret_path = validate_credential_lease(credential_lease)
     read_policy_manifest(manifest_path, expected_task_id=task_id, expected_execution_id=expected_execution)
     docker_host = os.environ.get("DOCKER_HOST")
@@ -226,8 +239,13 @@ def _run_container_agent(
         "/run/secrets/provider-api-key": True,
         "/run/secrets/proxy-token": True,
     }
+    if provider == "claude":
+        expected_mount_modes.update({
+            "/run/narrow/claude-settings.json": True,
+            "/run/narrow/claude-mcp.json": True,
+        })
     if set(mount_targets) != set(expected_mount_modes):
-        raise NarrowError("Docker agent must mount only its workspace, task home, policy manifest, and provider credential.")
+        raise NarrowError("Docker agent has an unexpected mount set; only the task workspace, private home, policy, selected credential, proxy capability, and approved provider settings may be mounted.")
     expected_sources = {
         "/workspace": workspace,
         "/home/narrow": task_home,
@@ -237,6 +255,11 @@ def _run_container_agent(
             store.state_dir / "runtime" / "agent" / task_id / expected_execution / "proxy.token"
         ),
     }
+    if provider == "claude":
+        expected_sources.update({
+            "/run/narrow/claude-settings.json": store.state_dir / "providers" / task_id / "claude-settings.json",
+            "/run/narrow/claude-mcp.json": store.state_dir / "providers" / task_id / "claude-mcp.json",
+        })
     for target, expected_source in expected_sources.items():
         try:
             info = expected_source.lstat()
@@ -287,13 +310,7 @@ def _run_container_agent(
     if command.count("--entrypoint") != 1 or command[command.index("--entrypoint") + 1] != "python":
         raise NarrowError("Docker agent must start through the NARROW in-container entrypoint.")
     validate_agent_image(command[image_index])
-    if command[image_index + 1:image_index + 10] != [
-        "-m", "narrow.agent_entrypoint", "--provider", "codex",
-        "--credential-file", "/run/secrets/provider-api-key",
-        "--proxy-token-file", "/run/secrets/proxy-token", "--",
-    ]:
-        raise NarrowError("Docker agent must invoke the constrained Codex credential and proxy-token entrypoint.")
-    normalize_provider_argv("codex", command[image_index + 10:])
+    normalize_provider_argv(provider, command[image_index + 10:])
     if "--workdir" not in command or command[command.index("--workdir") + 1:command.index("--workdir") + 2] != ["/workspace"]:
         raise NarrowError("Docker agent working directory must be the virtual /workspace.")
     if "--user" not in command or not re.fullmatch(r"[1-9][0-9]*:[1-9][0-9]*", command[command.index("--user") + 1]):
