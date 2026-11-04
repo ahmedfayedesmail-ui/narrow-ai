@@ -26,13 +26,10 @@ def validate_agent_image(image: str) -> str:
     return image
 
 
-def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
-    """Rebuild the known Codex argv and replace the host path with /workspace."""
-    if provider != "codex":
-        raise NarrowError("The first container launch profile supports Codex only; Claude needs a container-specific settings and hook profile.")
+def _normalize_codex_argv(command: list[str]) -> list[str]:
     if (
         not isinstance(command, list)
-        or any(not isinstance(item, str) or not item or "\x00" in item for item in command)
+        or any(not isinstance(item, str) or not item or "\\x00" in item for item in command)
         or len(command) < 9
         or command[:2] != ["codex", "exec"]
         or command[-1] != "-"
@@ -69,7 +66,7 @@ def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
         if cursor + 1 >= len(tokens):
             raise NarrowError("Codex model option is missing its value.")
         model = tokens[cursor + 1]
-        if len(model) > 120 or model.startswith("-") or "/" in model or "\\" in model:
+        if len(model) > 120 or model.startswith("-") or "/" in model or "\\\\" in model:
             raise NarrowError("Codex model value is invalid for container execution.")
         result.extend(["--model", model])
         cursor += 2
@@ -82,6 +79,115 @@ def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
         raise NarrowError("Codex container command contains an unsupported or unsafe argument.")
     result.append("-")
     return result
+
+
+def _normalize_claude_argv(command: list[str]) -> list[str]:
+    """Rebuild the bounded Claude print-mode command and relocate policy files."""
+    sentinel = "Follow the complete NARROW task instructions supplied on standard input."
+    if (
+        not isinstance(command, list)
+        or any(not isinstance(item, str) or not item or "\\x00" in item for item in command)
+        or len(command) < 22
+        or command[0] != "claude"
+        or command[-1] != sentinel
+    ):
+        raise NarrowError("Container provider command must match the NARROW Claude print-mode adapter contract.")
+
+    tokens = command[1:-1]
+    prefix = [
+        "--print", "--output-format", "stream-json", "--verbose",
+        "--permission-mode", "default", "--permission-prompts", "none",
+        "--max-turns",
+    ]
+    if tokens[:len(prefix)] != prefix or len(tokens) <= len(prefix):
+        raise NarrowError("Claude container command must use structured print mode and deny approval prompts.")
+    cursor = len(prefix)
+    try:
+        turns = int(tokens[cursor])
+    except (TypeError, ValueError) as exc:
+        raise NarrowError("Claude container max-turn budget is malformed.") from exc
+    if not 1 <= turns <= 200:
+        raise NarrowError("Claude container max-turn budget must be between 1 and 200.")
+    cursor += 1
+    if tokens[cursor:cursor + 2] != ["--input-format", "text"]:
+        raise NarrowError("Claude container command must read its full task prompt from standard input.")
+    cursor += 2
+    allowed_tools = "Bash,Read,Edit,Write,Glob,Grep,NotebookEdit"
+    if tokens[cursor:cursor + 2] != ["--tools", allowed_tools]:
+        raise NarrowError("Claude container profile refuses unreviewed tools and subagent expansion.")
+    cursor += 2
+    if tokens[cursor:cursor + 2] != ["--disallowedTools", "mcp__*"]:
+        raise NarrowError("Claude container profile must disable MCP tools.")
+    cursor += 2
+
+    result = [
+        "claude", "--print", "--output-format", "stream-json", "--verbose",
+        "--permission-mode", "default", "--permission-prompts", "none",
+        "--max-turns", str(turns), "--input-format", "text",
+        "--tools", allowed_tools, "--disallowedTools", "mcp__*",
+    ]
+    settings_seen = False
+    mcp_seen = False
+    strict_mcp_seen = False
+    seen: set[str] = set()
+    while cursor < len(tokens):
+        flag = tokens[cursor]
+        if flag == "--strict-mcp-config":
+            if strict_mcp_seen:
+                raise NarrowError("Claude container command repeats --strict-mcp-config.")
+            strict_mcp_seen = True
+            result.append(flag)
+            cursor += 1
+            continue
+        if flag not in {"--settings", "--mcp-config", "--model", "--effort", "--max-budget-usd", "--resume"}:
+            raise NarrowError(f"Claude container command contains an unsupported option: {flag}.")
+        if flag in seen or cursor + 1 >= len(tokens):
+            raise NarrowError(f"Claude container command repeats {flag} or omits its value.")
+        seen.add(flag)
+        value = tokens[cursor + 1]
+        if not value or value.startswith("--"):
+            raise NarrowError(f"Claude container option {flag} has an invalid value.")
+        if flag == "--settings":
+            settings_seen = True
+            result.extend([flag, "/run/narrow/claude-settings.json"])
+        elif flag == "--mcp-config":
+            mcp_seen = True
+            result.extend([flag, "/run/narrow/claude-mcp.json"])
+        elif flag == "--model":
+            if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,119}", value):
+                raise NarrowError("Claude model value is invalid for container execution.")
+            result.extend([flag, value])
+        elif flag == "--effort":
+            if value not in {"low", "medium", "high", "xhigh", "max"}:
+                raise NarrowError("Claude container effort must be one of low, medium, high, xhigh, max.")
+            result.extend([flag, value])
+        elif flag == "--max-budget-usd":
+            try:
+                budget = float(value)
+            except ValueError as exc:
+                raise NarrowError("Claude container budget is malformed.") from exc
+            if not 0 < budget <= 1000:
+                raise NarrowError("Claude container budget must be greater than 0 and no more than 1000 USD.")
+            result.extend([flag, f"{budget:.2f}"])
+        elif flag == "--resume":
+            if not _SESSION_ID.fullmatch(value):
+                raise NarrowError("Claude resume session ID is invalid for container execution.")
+            result.extend([flag, value])
+        cursor += 2
+
+    if not settings_seen or not mcp_seen or not strict_mcp_seen:
+        raise NarrowError("Claude container command must use its task-specific settings and strict empty MCP profile.")
+    result.append(sentinel)
+    return result
+
+
+def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
+    """Rebuild a reviewed native provider argv and translate host-only paths."""
+    if provider == "codex":
+        return _normalize_codex_argv(command)
+    if provider == "claude":
+        return _normalize_claude_argv(command)
+    raise NarrowError("The container agent runtime supports only the native Claude and Codex providers.")
 
 
 def validate_claude_container_settings(
