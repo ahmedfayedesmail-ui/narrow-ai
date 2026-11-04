@@ -160,7 +160,7 @@ All notable changes to NARROW are documented here.
 ### Added
 - `narrow review` and `narrow review --json` build a deterministic, read-only task evidence packet.
 - Automated gates check task-contract integrity, unsafe workspace entries, allow/deny scope, change-count limits, tracked-diff whitespace hygiene, branch/HEAD invariants, original-checkout cleanliness, signed verification evidence bound to the current snapshot and configured command, and acceptance-evidence freshness.
-- Credential-like changed paths are blockers without opening their contents; security, auth, deployment, workflow, policy, billing, and runtime paths are flagged for focused human scrutiny.
+- Credential-like changed paths are blockers without displaying or parsing their contents; security, auth, deployment, workflow, policy, billing, and runtime paths are flagged for focused human scrutiny.
 - The local Control Center exposes the same report through an authenticated read-only endpoint and displays findings beside the diff preview.
 
 ### Approval boundary
