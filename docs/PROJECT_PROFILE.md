@@ -55,7 +55,7 @@ For untrusted repositories, generated code, or unattended execution, use a separ
 
 ## Current validation
 
-- PR #16 and PR #17 are merged into `main`; the Beta source includes discovery, human-reviewed task proposals, opt-in containerized verification, and the opt-in Codex container/proxy runtime.
+- PR #16 and PR #17 are merged into `main`; the Beta source includes discovery, human-reviewed task proposals, opt-in containerized verification, and the opt-in Claude/Codex container/proxy runtime.
 - The merged-main workflow [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003) passed all nine jobs on commit `979198b`: Ubuntu/Python 3.11–3.14, macOS, Windows repaired/blocked, Docker image build plus real proxy-only egress acceptance, and package build/install.
 - CodeQL passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
 - No authenticated live Codex account session was performed. The project owner has explicitly decided that a live session is not required for the Beta label. No live provider execution is claimed.
@@ -83,7 +83,7 @@ The demo uses a fake local agent and deliberately stops for human review; it is 
 
 ## Maturity and release gates
 
-NARROW is in public Beta preview, not stable. The optional Codex container profile is POSIX/local-Docker only, remains explicitly opt-in, and is not a universal agent sandbox. Its Docker proxy-only egress acceptance job passed on the recorded merged-main CI run. A live authenticated Codex session is not a Beta-label prerequisite by the project owner's decision, and none is claimed. Cross-platform fault-injection, adversarial boundary testing, and independent security review remain open maturity gates before stable release.
+NARROW is in public Beta preview, not stable. The optional Claude/Codex container profile is POSIX/local-Docker only, remains explicitly opt-in, and is not a universal agent sandbox. Its Docker proxy-only egress acceptance job passed on the recorded merged-main CI run. A live authenticated Codex session is not a Beta-label prerequisite by the project owner's decision, and none is claimed. Cross-platform fault-injection, adversarial boundary testing, and independent security review remain open maturity gates before stable release.
 
 The next milestone is evidence-led user testing and closure of these gates—not feature expansion for its own sake.
 
