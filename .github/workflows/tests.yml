@@ -1,4 +1,4 @@
-name: NARROW v0.6.0 Beta checks
+name: NARROW 1.0.0 product checks
 
 on:
   push:
@@ -49,6 +49,10 @@ jobs:
           python -m narrow drive --help
           python -m narrow verify --help
           python -m narrow finish --help
+          python -m narrow review --help
+          python -m narrow review-action --help
+          python -m narrow security --help
+          python -m narrow setup --help
 
   macos:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
