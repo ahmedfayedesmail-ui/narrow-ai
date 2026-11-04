@@ -154,3 +154,16 @@ All notable changes to NARROW are documented here.
 - Docker's internal bridge has no default route for the agent and the entrypoint fails closed if one is present. The host bridge gateway remains reachable where host services permit it; the Docker daemon and host kernel are trusted.
 - The mounted provider key remains readable by code running inside the agent. This is host-credential isolation, not protection from a malicious agent.
 - This work is unreleased feature-branch code and does not change the legacy pre-Beta v0.5.1 package.
+
+## Beta follow-up — deterministic review gate
+
+### Added
+- `narrow review` and `narrow review --json` build a deterministic, read-only task evidence packet.
+- Automated gates check task-contract integrity, unsafe workspace entries, allow/deny scope, change-count limits, tracked-diff whitespace hygiene, branch/HEAD invariants, original-checkout cleanliness, signed verification evidence bound to the current snapshot and configured command, and acceptance-evidence freshness.
+- Credential-like changed paths are blockers without opening their contents; security, auth, deployment, workflow, policy, billing, and runtime paths are flagged for focused human scrutiny.
+- The local Control Center exposes the same report through an authenticated read-only endpoint and displays findings beside the diff preview.
+
+### Approval boundary
+- Deterministic evidence triage is not an LLM judge or semantic-correctness proof.
+- Reports never approve, execute commands, mutate task state, commit, merge, or deploy.
+- Human acceptance remains explicit; `narrow finish` independently rechecks completion invariants.
