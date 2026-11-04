@@ -14,11 +14,11 @@
 
 ### Scope and release notes
 - This is a public Beta preview of the GitHub source on `main`, versioned `0.6.0b1`; it has not been uploaded to PyPI and no release tag is created by this change.
-- The already-published v0.5.1 package remains Alpha and unchanged.
+- The already-published v0.5.1 package is a legacy pre-Beta distribution and remains unchanged.
 - The Codex container profile is opt-in, POSIX/local-Docker only, and experimental. Docker daemon and host kernel remain trusted; the mounted API key is readable inside the agent container. This is not a microVM or universal sandbox.
 - Windows container supervision, Windows credential DACL handling, cross-platform fault injection, adversarial sandbox testing, and independent security review remain open.
 
-## 0.5.1 — 2026-11-03 (Alpha)
+## 0.5.1 — 2026-11-03 (legacy pre-Beta)
 
 ### Changed
 - Refresh the source-distribution README so package-index pages no longer claim that no tagged GitHub release or package publication exists.
@@ -43,7 +43,7 @@
 - CI now includes macOS full-suite and demo jobs, Windows demo workflows, and clean wheel/source-distribution build and wheel-install checks. Results are recorded in the QA document after the workflow completes.
 - Documentation now explicitly states that generic adapters/direct `run`/`resume` commands do not gain an OS sandbox from NARROW and that verification commands retain the invoking user's permissions.
 
-## 0.5.0 — 2026-11-03 (Alpha)
+## 0.5.0 — 2026-11-03 (legacy pre-Beta)
 
 ### Added
 - Per-task single-flight execution leases. Concurrent drive loops, direct agent runs, verification commands, and finish checks for the same task are rejected instead of racing over one workspace.
@@ -61,7 +61,7 @@
 
 All notable changes to NARROW are documented here.
 
-## 0.4.0 — 2026-11-03 (Alpha)
+## 0.4.0 — 2026-11-03 (legacy pre-Beta)
 
 ### Added
 - Local loopback-only, read-only Control Center with responsive UI, task overview, scope summary, current/stale verification status, and sanitized activity timeline.
@@ -83,7 +83,7 @@ All notable changes to NARROW are documented here.
 - No automatic commit, merge, push, deployment, or completion acceptance is introduced.
 - Independent security review and authenticated provider E2E remain open release gates.
 
-## 0.3.0 — 2026-11-03 (Alpha)
+## 0.3.0 — 2026-11-03 (legacy pre-Beta)
 
 ### Added
 - Claude Code strict shell sandbox is required; fail closed when unavailable and prohibit unsandboxed retries.
@@ -100,7 +100,7 @@ All notable changes to NARROW are documented here.
 - Codex uses its workspace-write sandbox and non-interactive approval-deny mode, but NARROW does not install a Codex-native pre-tool file-path hook.
 - Isolated Git copies still run agent and verification processes with the current user's OS permissions.
 
-## 0.2.0 — 2026-11-03 (Alpha)
+## 0.2.0 — 2026-11-03 (legacy pre-Beta)
 
 ### Added
 - Native Claude Code and Codex CLI adapters for the bounded `drive` workflow.
@@ -111,7 +111,7 @@ All notable changes to NARROW are documented here.
 - Agent prompts, assistant content, tool inputs, and tool results are not stored in NARROW's event journal.
 - Structured provider output is drained without placing task prompts in process arguments.
 
-## 0.1.0 — 2026-11-03 (Alpha)
+## 0.1.0 — 2026-11-03 (legacy pre-Beta)
 
 ### Added
 - Local task contract and SQLite event journal.
@@ -140,4 +140,4 @@ All notable changes to NARROW are documented here.
 - The current container profile is POSIX/local-Docker only. Windows credential-DACL support and Windows container supervision are not implemented.
 - Docker's internal bridge has no default route for the agent and the entrypoint fails closed if one is present. The host bridge gateway remains reachable where host services permit it; the Docker daemon and host kernel are trusted.
 - The mounted provider key remains readable by code running inside the agent. This is host-credential isolation, not protection from a malicious agent.
-- This work is unreleased feature-branch code and does not change the published v0.5.1 package or its Alpha maturity classification.
+- This work is unreleased feature-branch code and does not change the legacy pre-Beta v0.5.1 package.
