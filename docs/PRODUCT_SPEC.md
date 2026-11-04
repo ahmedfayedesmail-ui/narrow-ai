@@ -1,4 +1,4 @@
-# Product Specification — v0.5.0 Alpha
+# Legacy Product Specification — v0.5.0 (pre-Beta baseline)
 
 ## Product promise
 
@@ -8,7 +8,7 @@ NARROW makes AI-assisted work **focused, resumable, and verifiable**. It does no
 
 A person who delegates multi-step work to one or more AI agents and needs to keep control of the task, code, decisions, and quality. The first release targets software repositories because Git supplies a practical isolation boundary and tests can provide measurable evidence.
 
-## Current product surface (v0.5.0 Alpha)
+## Product surface at v0.5.0 (pre-Beta baseline)
 
 - Read-only local Control Center on loopback for task portfolio, live status, scope summary, acceptance counts, sanitized events, and snapshot-current check results.
 - `narrow tasks` for bounded human-readable or JSON task listings.
