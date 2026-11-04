@@ -20,6 +20,47 @@ from narrow.agent_runtime import (
 )
 
 
+def valid_claude_settings() -> dict:
+    """Return the complete container-only Claude hook policy fixture."""
+    events = {
+        "SessionStart": "session-start",
+        "PreToolUse": "pre-tool-use",
+        "PostToolUse": "post-tool-use",
+        "PostToolUseFailure": "post-tool-use-failure",
+        "SubagentStart": "subagent-start",
+        "SubagentStop": "subagent-stop",
+        "TaskCreated": "task-created",
+        "TaskCompleted": "task-completed",
+        "PreCompact": "pre-compact",
+        "Stop": "stop",
+        "SessionEnd": "session-end",
+    }
+    hooks = {}
+    for name, event in events.items():
+        group = {"hooks": [{
+            "type": "command",
+            "command": f"python -m narrow hook claude {event}",
+            "timeout": 10 if name == "PreCompact" else 5,
+        }]}
+        if name == "PreToolUse":
+            group["matcher"] = "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit"
+            group["hooks"][0]["onFailure"] = "block"
+        elif name == "PostToolUse":
+            group["matcher"] = "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit"
+        elif name == "PostToolUseFailure":
+            group["matcher"] = "Bash|Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit|Agent"
+        elif name in {"SubagentStart", "SubagentStop", "TaskCreated", "TaskCompleted"}:
+            group["hooks"][0]["onFailure"] = "continue"
+        hooks[name] = [group]
+    return {
+        "permissions": {
+            "defaultMode": "default",
+            "blockReadsOutsideWorkingDirectories": True,
+        },
+        "hooks": hooks,
+    }
+
+
 class AgentRuntimePlanTests(unittest.TestCase):
     def test_accepts_digest_pinned_image(self):
         value = "ghcr.io/acme/narrow-agent@sha256:" + "a" * 64
@@ -58,20 +99,7 @@ class AgentRuntimePlanTests(unittest.TestCase):
             root = Path(folder)
             settings = root / "claude-settings.json"
             mcp = root / "claude-mcp.json"
-            settings.write_text(json.dumps({
-                "permissions": {"blockReadsOutsideWorkingDirectories": True},
-                "hooks": {
-                    "PreToolUse": [{
-                        "matcher": "Read|Write",
-                        "hooks": [{
-                            "type": "command",
-                            "command": "python -m narrow hook claude pre-tool-use",
-                            "timeout": 5,
-                            "onFailure": "block",
-                        }],
-                    }],
-                },
-            }), encoding="utf-8")
+            settings.write_text(json.dumps(valid_claude_settings()), encoding="utf-8")
             mcp.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
             validate_claude_container_settings(settings, mcp)
             command = [
@@ -103,10 +131,7 @@ class AgentRuntimePlanTests(unittest.TestCase):
             mcp.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
             with self.assertRaisesRegex(NarrowError, "delegate containment"):
                 validate_claude_container_settings(settings, mcp)
-            settings.write_text(json.dumps({
-                "permissions": {"blockReadsOutsideWorkingDirectories": True},
-                "hooks": {"PreToolUse": []},
-            }), encoding="utf-8")
+            settings.write_text(json.dumps(valid_claude_settings()), encoding="utf-8")
             mcp.write_text(json.dumps({"mcpServers": {"local": {"command": "python"}}}), encoding="utf-8")
             with self.assertRaisesRegex(NarrowError, "exactly empty"):
                 validate_claude_container_settings(settings, mcp)
@@ -157,7 +182,7 @@ class AgentRuntimePlanTests(unittest.TestCase):
                 "hooks": hooks,
             }), encoding="utf-8")
             mcp.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
-            with self.assertRaisesRegex(NarrowError, "file-policy hooks"):
+            with self.assertRaisesRegex(NarrowError, "PreToolUse hook configuration is malformed"):
                 validate_claude_container_settings(settings, mcp)
 
     def test_rejects_missing_prompt_sentinel(self):
@@ -271,20 +296,7 @@ class AgentRuntimePlanTests(unittest.TestCase):
             settings_dir.mkdir(parents=True)
             claude_settings = settings_dir / "claude-settings.json"
             claude_mcp = settings_dir / "claude-mcp.json"
-            claude_settings.write_text(json.dumps({
-                "permissions": {"blockReadsOutsideWorkingDirectories": True},
-                "hooks": {
-                    "PreToolUse": [{
-                        "matcher": "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit",
-                        "hooks": [{
-                            "type": "command",
-                            "command": "python -m narrow hook claude pre-tool-use",
-                            "timeout": 5,
-                            "onFailure": "block",
-                        }],
-                    }],
-                },
-            }), encoding="utf-8")
+            claude_settings.write_text(json.dumps(valid_claude_settings()), encoding="utf-8")
             claude_mcp.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
             provider = [
                 "claude", "--print", "--output-format", "stream-json", "--verbose",
