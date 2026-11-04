@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -126,6 +127,8 @@ def build_docker_agent_command(
     proxy_token_path: Path | str,
     uid: int | None = None,
     gid: int | None = None,
+    claude_settings_file: Path | str | None = None,
+    claude_mcp_file: Path | str | None = None,
 ) -> list[str]:
     """Build the exact, restricted Docker argv accepted by the host supervisor.
 
@@ -137,13 +140,16 @@ def build_docker_agent_command(
     if not isinstance(task_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", task_id):
         raise NarrowError("Invalid task ID for Docker agent command.")
     execution = _validate_execution_id(execution_id)
+    provider = provider_command[0] if isinstance(provider_command, list) and provider_command else None
+    if provider not in {"claude", "codex"}:
+        raise NarrowError("Docker agent command supports only the native Claude and Codex CLIs.")
     if (
         not isinstance(credential_lease, CredentialLease)
-        or credential_lease.provider != "codex"
+        or credential_lease.provider != provider
         or credential_lease.task_id != task_id
         or credential_lease.execution_id != execution
     ):
-        raise NarrowError("Docker agent command requires the exact Codex credential lease for this execution.")
+        raise NarrowError("Docker agent command requires the exact selected-provider credential lease for this execution.")
     secret_path = validate_credential_lease(credential_lease)
     if uid is None or gid is None:
         if not hasattr(os, "getuid") or not hasattr(os, "getgid"):
@@ -184,7 +190,45 @@ def build_docker_agent_command(
         if secret_metadata.st_uid != uid or proxy_metadata.st_uid != uid or home_metadata.st_uid != uid:
             raise NarrowError("Docker agent UID must own the private credential, proxy capability, and task-home mounts.")
 
-    normalized_provider = normalize_provider_argv("codex", provider_command)
+    normalized_provider = normalize_provider_argv(provider, provider_command)
+    claude_settings = None
+    claude_mcp = None
+    if provider == "claude":
+        if claude_settings_file is None or claude_mcp_file is None:
+            raise NarrowError("Claude container execution requires task-specific settings and an empty MCP profile.")
+        claude_settings = _validated_mount_source(claude_settings_file, directory=False)
+        claude_mcp = _validated_mount_source(claude_mcp_file, directory=False)
+        expected_settings = Path(credential_lease.state_dir) / "providers" / task_id / "claude-settings.json"
+        expected_mcp = Path(credential_lease.state_dir) / "providers" / task_id / "claude-mcp.json"
+        if Path(claude_settings).resolve(strict=True) != expected_settings.resolve(strict=True) or Path(claude_mcp).resolve(strict=True) != expected_mcp.resolve(strict=True):
+            raise NarrowError("Claude container settings must be the exact task-scoped NARROW-generated files.")
+        try:
+            settings_data = json.loads(Path(claude_settings).read_text(encoding="utf-8"))
+            mcp_data = json.loads(Path(claude_mcp).read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+            raise NarrowError("Claude container settings are not valid task-local JSON.") from exc
+        if not isinstance(settings_data, dict) or "sandbox" in settings_data:
+            raise NarrowError("Claude container settings must delegate process/filesystem/network containment to the outer Docker boundary.")
+        if settings_data.get("permissions", {}).get("blockReadsOutsideWorkingDirectories") is not True:
+            raise NarrowError("Claude container settings must retain the working-directory read restriction.")
+        hooks = settings_data.get("hooks")
+        if not isinstance(hooks, dict) or "PreToolUse" not in hooks:
+            raise NarrowError("Claude container settings must include the NARROW direct-file PreToolUse gate.")
+        for hook_groups in hooks.values():
+            if not isinstance(hook_groups, list):
+                raise NarrowError("Claude container hook settings are malformed.")
+            for group in hook_groups:
+                hook_list = group.get("hooks") if isinstance(group, dict) else None
+                if not isinstance(hook_list, list):
+                    raise NarrowError("Claude container hook settings are malformed.")
+                for hook in hook_list:
+                    expected_prefix = "python -m narrow hook claude "
+                    if not isinstance(hook, dict) or not isinstance(hook.get("command"), str) or not hook["command"].startswith(expected_prefix):
+                        raise NarrowError("Claude container hooks must invoke the in-image NARROW manifest-only hook CLI.")
+        if mcp_data != {"mcpServers": {}}:
+            raise NarrowError("Claude container MCP configuration must be exactly empty.")
+    elif claude_settings_file is not None or claude_mcp_file is not None:
+        raise NarrowError("Codex container execution does not accept Claude settings mounts.")
     network = f"narrow-agent-{task_id[:32]}-{execution.replace('-', '')[:12]}"
     container_name = f"narrow-agent-{task_id[:24]}-{execution.replace('-', '')[:12]}"
     spool = "/home/narrow/.local/state/narrow/hook-events.jsonl"
@@ -211,6 +255,11 @@ def build_docker_agent_command(
         "--mount", f"type=bind,source={secret},target=/run/secrets/provider-api-key,readonly",
         "--mount", f"type=bind,source={proxy_secret},target=/run/secrets/proxy-token,readonly",
     ]
+    if provider == "claude":
+        command.extend([
+            "--mount", f"type=bind,source={claude_settings},target=/run/narrow/claude-settings.json,readonly",
+            "--mount", f"type=bind,source={claude_mcp},target=/run/narrow/claude-mcp.json,readonly",
+        ])
     command.extend(agent_container_label_args(task_id, execution))
     for key, value in (
         ("HOME", "/home/narrow"),
@@ -227,7 +276,7 @@ def build_docker_agent_command(
         "--entrypoint", "python",
         pinned_image,
         "-m", "narrow.agent_entrypoint",
-        "--provider", "codex",
+        "--provider", provider,
         "--credential-file", "/run/secrets/provider-api-key",
         "--proxy-token-file", "/run/secrets/proxy-token",
         "--",
