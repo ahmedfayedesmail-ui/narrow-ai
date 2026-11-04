@@ -105,6 +105,14 @@ The contract proposal does not silently approve scope. NARROW prints the propose
 6. **Verify and repair.** Explicitly configured checks run under a bounded repair budget. A failure can trigger a limited repair attempt; repeated failure becomes a blocked/review state.
 7. **Require human acceptance.** NARROW does not equate an agent saying “done” or a green test with semantic correctness. A human reviews the diff and confirms acceptance criteria before `finish` can mark the task verified.
 
+## Verification-gated repair continuation
+
+During `narrow drive`, a failed configured check no longer guarantees that another agent attempt will launch. Before every bounded repair retry, NARROW rebuilds the deterministic review packet for the current workspace snapshot.
+
+A retry is allowed only for a plain verification failure with no safety blockers and no elevated path-risk flags. Out-of-scope/denied changes, unsafe workspace links, credential-like paths, changed task contracts, checkout/branch invariant failures, or sensitive authentication/security/deployment/workflow paths stop or escalate the cycle to `NEEDS_REVIEW`. NARROW records a sanitized `VERIFICATION_REPAIR_ESCALATED` event and does not start another agent attempt.
+
+This is verification-gated autonomy, not automatic approval. Even when a repair retry is permitted, the number of attempts remains bounded, the checks must pass on the current snapshot, and a human must still review the diff, confirm acceptance criteria, and run `narrow finish`.
+
 ## Deterministic review gate
 
 Run `narrow review` after an agent finishes its bounded work cycle. The command builds a read-only evidence packet and supports `--json` for automation. The same report is available in the local Control Center under **Automated review**.
