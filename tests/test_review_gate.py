@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from narrow.core import Store, create_task, init_project, save_check_run, snapshot_hash
+from narrow.core import Store, accept_criterion, create_task, init_project, save_check_run, snapshot_hash
 from narrow.review_gate import build_review_report
 
 
@@ -79,6 +79,15 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(report["decision"], "HUMAN_REVIEW_REQUIRED")
         self.assertEqual(report["verification"]["passing_current"], 1)
         self.assertEqual(report["acceptance"]["pending_or_stale"], [1, 2])
+
+    def test_ready_report_still_does_not_complete_task_automatically(self):
+        self._configure_and_pass()
+        for index in (1, 2):
+            accept_criterion(self.store, self.task["id"], index, "Reviewed the current diff and verified the criterion manually.")
+        report = build_review_report(self.store, self.task["id"])
+        self.assertEqual(report["decision"], "READY_FOR_FINISH_GATE")
+        self.assertFalse(report["automatic_approval"])
+        self.assertEqual(self.store.get_task(self.task["id"])["status"], "READY_FOR_REVIEW")
 
     def test_out_of_scope_and_denied_paths_are_blockers(self):
         (self.workspace / "docs").mkdir()
