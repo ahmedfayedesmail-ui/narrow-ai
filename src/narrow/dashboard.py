@@ -192,7 +192,12 @@ _JS = r"""
       if(selected) {
         const detail=await get(`/api/v1/tasks/${encodeURIComponent(selected)}`);
         renderDetail(detail);
-        const cacheKey=`${selected}:${detail.task.updated_at}:${detail.workspace.changed_files}`;
+        const reviewKey=`${selected}:${detail.snapshot_hash || "unsafe"}:${detail.task.status}`;
+        if(forceDiff || reviewKey!==reviewCacheKey) {
+          renderReview(await get(`/api/v1/tasks/${encodeURIComponent(selected)}/review`));
+          reviewCacheKey=reviewKey;
+        }
+        const cacheKey=`${selected}:${detail.snapshot_hash || "unsafe"}`;
         if(forceDiff || cacheKey!==diffCacheKey) {
           renderDiff(await get(`/api/v1/tasks/${encodeURIComponent(selected)}/diff`));
           diffCacheKey=cacheKey;
@@ -403,6 +408,7 @@ def task_detail(store: Store, task_id: str) -> dict[str, Any]:
     return {
         "schema": "narrow.dashboard.task.v1",
         "task": {key: task[key] for key in ("id", "title", "goal", "status", "branch", "base_sha", "created_at", "updated_at")},
+        "snapshot_hash": current_snapshot,
         "workspace": {
             "changed_files": len(paths),
             "allowed": scope["allowed"][:30],
