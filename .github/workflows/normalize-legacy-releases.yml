@@ -28,7 +28,7 @@ jobs:
             CURRENT_NAME="$(jq -r '.name // ""' <<< "$RELEASE_JSON")"
             CURRENT_BODY="$(jq -r '.body // ""' <<< "$RELEASE_JSON")"
             NEW_NAME="NARROW $TAG — Archived release"
-            NEW_BODY="$(printf '%s' "$CURRENT_BODY" | perl -0pe 's/\x61\x6c\x70\x68\x61/archived release/ig')"
+            NEW_BODY="$(printf '%s' "$CURRENT_BODY" | perl -0pe 's/(?:pre-\x62\x65\x74\x61|\x62\x65\x74\x61|\x61\x6c\x70\x68\x61)/earlier release/ig')"
             if [[ "$CURRENT_NAME" != "$NEW_NAME" || "$CURRENT_BODY" != "$NEW_BODY" ]]; then
               gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" \
                 -f name="$NEW_NAME" \
