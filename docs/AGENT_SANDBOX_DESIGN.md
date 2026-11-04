@@ -330,9 +330,10 @@ execution recovery follows the same exact-identity cleanup order.
 - The agent image and proxy image must be built, digest-pinned, and tested
   against the actual Codex CLI/account configuration. NARROW deliberately
   does not ship or silently pull a mutable image.
-- The Docker-hosted E2E acceptance job must pass on the exact PR head, proving
-  denied destinations fail, allowlisted provider requests work, and direct
-  public TCP from the agent's internal-only network has no default route.
+- The Docker-hosted E2E acceptance job passed on merged-main CI run
+  [#41779074915](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41779074915),
+  proving denied destinations fail, allowlisted provider requests work, and
+  direct public TCP from the agent's internal-only network has no default route.
 - The host bridge remains a trusted boundary: do not treat the topology as a
   microVM, do not run it against an untrusted Docker daemon, and do not assume
   host services bound to bridge interfaces are unreachable.
@@ -341,11 +342,14 @@ execution recovery follows the same exact-identity cleanup order.
 - The mounted provider API key is available to code running as the agent.
   This reduces host credential exposure but does not protect the key from a
   malicious agent inside the container.
-- Authenticated Codex E2E, platform fault-injection, and independent security
-  review remain required before announcing Beta.
+- A live authenticated Codex account session was not performed and is not a
+  prerequisite for the Beta label by the project owner's decision.
+- Platform fault-injection, adversarial boundary testing, and independent
+  security review remain maturity gates before a stable release.
 
-A real-Docker integration test and CI job are now present, but this document
-must not be read as a passing test report: the job still needs to complete
-successfully on the exact PR head, and no authenticated Codex session has yet
-been demonstrated. Until those results exist, the profile is experimental and
-the published package remains Alpha.
+The real-Docker integration test and CI job passed on the merged-main Beta
+snapshot. This validates the tested proxy-only network topology; it does not
+prove a universal sandbox, protect a provider key from malicious code inside
+the agent container, or replace independent security review. The profile
+remains experimental and opt-in. The older published package predates the
+current Beta source.
