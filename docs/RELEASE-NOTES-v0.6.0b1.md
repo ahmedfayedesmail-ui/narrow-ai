@@ -10,10 +10,10 @@ Status: Public Beta preview on GitHub `main`; source-only and not yet published 
 - Opt-in POSIX/local-Docker Codex agent container with an execution-scoped internal network, separate egress proxy uplink, digest-pinned images, credential broker, and ordered lifecycle cleanup.
 - Third-party provider adapter extension point and expanded safety documentation.
 
-## Validation status at this snapshot
+## Validation status
 
-- PR #16 is merged. Its Ubuntu/Python 3.11–3.14, Windows repaired/blocked, and package build/install jobs passed on run [#41716857214](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41716857214). The macOS job was still queued at the recorded check.
-- PR #17 is merged. Main-push workflow run [#41717982650](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41717982650) was queued at the recorded check and includes the real Docker proxy-only egress acceptance job. No pass is claimed yet.
+- The merged-main workflow [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003) passed all nine jobs on commit `979198b`: Ubuntu/Python 3.11–3.14, macOS, Windows repaired/blocked, real Docker proxy-only egress acceptance, and package build/clean install.
+- CodeQL passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
 - No authenticated live Codex account session was performed. The project owner has explicitly decided that such a session is not required for the Beta label. This is not a claim of live Codex execution success.
 
 ## Boundaries

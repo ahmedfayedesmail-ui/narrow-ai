@@ -281,11 +281,11 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 
 ## Current validation
 
-- PR #16 and PR #17 have been merged into `main`; the source now includes discovery, reviewed task proposals, optional containerized checks, and the opt-in Codex container/proxy runtime.
-- On PR #16 head `d0cb99a`, workflow run [#41716857214](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41716857214) completed successfully for Ubuntu/Python 3.11–3.14, Windows repaired/blocked demos, and wheel/sdist build plus clean wheel installation. The macOS job was still queued at the recorded check.
-- The merged PR #17 main-push validation is tracked by [run #41717982650](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41717982650); it was queued when this Beta snapshot was recorded. That workflow includes the real Docker proxy-only egress acceptance job, so its result is not yet claimed as passing.
-- No authenticated live Codex account session was performed. The project owner has explicitly decided that such a session is not required for the Beta label; this document does not claim that live provider execution was tested.
-- The deterministic local demo uses a fake agent. It is not a live provider session, Docker egress proof, or independent security audit.
+- PR #16 and PR #17 are merged into `main`. The Beta source includes discovery, human-reviewed task proposals, optional containerized verification, and the opt-in Codex container/proxy runtime.
+- The complete merged-main workflow [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003) passed all nine jobs on commit `979198b`: Ubuntu/Python 3.11–3.14 unit tests, demos and CLI checks; macOS full suite and demos; Windows repaired/blocked demo and task-lock jobs; Docker image build and real proxy-only egress acceptance; and wheel/source-distribution build plus clean wheel installation.
+- CodeQL also passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
+- No authenticated live Codex account session was performed. The project owner has explicitly decided that such a session is not required for the Beta label; no live provider execution is claimed.
+- CI and deterministic fake-agent results are not an independent security audit, universal sandbox assessment, or proof of semantic correctness.
 - The published `v0.5.1` PyPI package remains Alpha and unchanged. Android/Termux remains unsupported and unvalidated.
 ## Contributing
 

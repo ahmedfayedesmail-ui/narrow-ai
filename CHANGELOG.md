@@ -8,9 +8,9 @@
 - Third-party provider-adapter extension point and expanded safety/setup documentation.
 
 ### Validation snapshot
-- PR #16 was merged after its Ubuntu/Python 3.11–3.14, Windows repaired/blocked, and package jobs passed. Its macOS job was still queued at the time of the recorded run.
-- PR #17 was merged with the Docker egress acceptance job included in main CI. Main-push run [#41717982650](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41717982650) was queued when this entry was written; no Docker acceptance pass is claimed yet.
-- No authenticated live Codex account session was performed. The owner has explicitly chosen not to make that session a prerequisite for the Beta label; no live session result is implied.
+- Merged-main workflow [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003) passed all nine jobs on commit `979198b`: Ubuntu/Python 3.11–3.14, macOS, Windows repaired/blocked, real Docker proxy-only egress acceptance, and package build/clean install.
+- CodeQL passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
+- No authenticated live Codex account session was performed. The owner has explicitly decided that such a session is not a prerequisite for the Beta label; no live session result is implied.
 
 ### Scope and release notes
 - This is a public Beta preview of the GitHub source on `main`, versioned `0.6.0b1`; it has not been uploaded to PyPI and no release tag is created by this change.

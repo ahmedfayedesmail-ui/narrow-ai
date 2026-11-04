@@ -65,7 +65,7 @@ The following capabilities are included in the current Beta preview on `main`; t
 - Field-version history and diffs for generated versus human-approved contracts; active contracts stay immutable.
 - Optional per-task pip/npm/pnpm/yarn cache mounts; no host home-directory cache or credential directories are mounted.
 
-The feature branch now has an opt-in OS container around the Codex CLI, but that does not amount to a microVM or a universal agent sandbox. The live Docker egress acceptance job, authenticated Codex session, Windows support, broader adversarial tests, and independent review remain release gates. The default execution mode remains unchanged for compatibility. These are still release gates, not completed enterprise-security claims.
+The Beta preview on `main` now includes the opt-in POSIX/local-Docker Codex container. Its real Docker proxy-only egress acceptance job passed in merged-main CI run [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003). This does not amount to a microVM or universal agent sandbox. No authenticated Codex account session was performed; the owner has decided it is not a Beta-label prerequisite. Windows container supervision/credential DACL support, broader adversarial tests, and independent review remain maturity gates before stable release. The default execution mode remains unchanged for compatibility.
 
 ## v0.6 — Stronger execution isolation (planned)
 

@@ -55,11 +55,11 @@ For untrusted repositories, generated code, or unattended execution, use a separ
 
 ## Current validation
 
-- PR #16 and PR #17 are merged into `main`. The Beta source includes discovery, human-reviewed task proposals, opt-in containerized verification, and the opt-in Codex container/proxy runtime.
-- On PR #16 head `d0cb99a`, workflow run [#41716857214](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41716857214) passed the Ubuntu/Python 3.11–3.14 matrix, Windows repaired/blocked demo jobs, and package build/install job. The macOS job was still queued at the recorded check.
-- The merged-main workflow run [#41717982650](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41717982650) was queued when this Beta snapshot was recorded. It includes the Docker proxy-only egress acceptance test; no passing result is claimed yet.
-- No authenticated live Codex account session was performed. The project owner has explicitly decided that a live session is not required for the Beta label. This profile does not claim that live provider execution was tested.
-- Existing CI and deterministic fake-agent tests are not an independent security audit, universal sandbox assessment, or proof of semantic correctness.
+- PR #16 and PR #17 are merged into `main`; the Beta source includes discovery, human-reviewed task proposals, opt-in containerized verification, and the opt-in Codex container/proxy runtime.
+- The merged-main workflow [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003) passed all nine jobs on commit `979198b`: Ubuntu/Python 3.11–3.14, macOS, Windows repaired/blocked, Docker image build plus real proxy-only egress acceptance, and package build/install.
+- CodeQL passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
+- No authenticated live Codex account session was performed. The project owner has explicitly decided that a live session is not required for the Beta label. No live provider execution is claimed.
+- The CI results establish the tested deterministic workflows and Docker egress topology; they are not an independent security audit, universal sandbox assessment, or proof of semantic correctness.
 - The published `v0.5.1` PyPI package remains Alpha and unchanged. Android/Termux is unsupported and unvalidated.
 
 ## Installation and demo
@@ -83,7 +83,7 @@ The demo uses a fake local agent and deliberately stops for human review; it is 
 
 ## Maturity and release gates
 
-NARROW is in public Beta preview, not stable. The optional Codex container profile is POSIX/local-Docker only, remains explicitly opt-in, and is not a universal agent sandbox. A live authenticated Codex session is not a Beta-label prerequisite by the project owner's decision, and none is claimed. The Docker proxy-only egress acceptance job remains pending a passing result before that specific container profile can be described as validated. Cross-platform fault-injection, adversarial boundary testing, and independent security review remain open maturity gates before stable release.
+NARROW is in public Beta preview, not stable. The optional Codex container profile is POSIX/local-Docker only, remains explicitly opt-in, and is not a universal agent sandbox. Its Docker proxy-only egress acceptance job passed on the recorded merged-main CI run. A live authenticated Codex session is not a Beta-label prerequisite by the project owner's decision, and none is claimed. Cross-platform fault-injection, adversarial boundary testing, and independent security review remain open maturity gates before stable release.
 
 The next milestone is evidence-led user testing and closure of these gates—not feature expansion for its own sake.
 
