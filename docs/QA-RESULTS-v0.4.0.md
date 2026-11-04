@@ -1,4 +1,4 @@
-# NARROW v0.4.0 Alpha — QA Results
+# NARROW v0.4.0 legacy pre-Beta — QA Results
 
 Date: 2026-11-03
 Environment: Linux, Python 3.13, Git 2.47
