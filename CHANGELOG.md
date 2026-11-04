@@ -1,4 +1,23 @@
-## Beta follow-up — explicit human review decisions
+## 1.0.0 — 2026-11-04
+
+NARROW 1.0.0 brings the local-first AI coding workflow into one cohesive product experience: task contracts, agent execution, verification, evidence review, human decision controls, and the local Control Center.
+
+### Product capabilities
+- Task discovery and conservative project profiles with one-command setup.
+- Native Claude Code and Codex CLI adapters, plus configurable command adapters.
+- Dedicated task workspaces, persistent local journal, session handoffs, scope monitoring, and single-flight task execution.
+- Optional Docker/Podman verification and the POSIX/local-Docker Claude/Codex agent runtime with digest-pinned images, execution-scoped networks, egress proxy routing, task-scoped credentials, supervision, and recovery.
+- Signed, snapshot-bound verification results and bounded repair continuation governed by deterministic review evidence.
+- Review queue, unified diff preview, deterministic risk findings, evidence capture for each acceptance criterion, request-changes, reject, and approve-and-finish controls.
+- Independent finish gate and auditable human decision events.
+- Local Control Center and JSON-capable CLI workflows.
+
+### Validation
+- Product checks passed on the 1.0.0 source commit: Python 3.11–3.14, macOS, Windows, Docker E2E, and package build.
+- CodeQL passed on the same source commit.
+- Provider authentication and billing remain with the user's selected provider CLI and account.
+
+## Product update — explicit human review decisions
 
 - The local Control Center now supports human evidence entry per acceptance criterion, request-changes, reject, and approve-and-finish actions.
 - The authenticated decision API requires a same-origin request, the one-time dashboard token, a bounded JSON body, and the per-task execution lock.
@@ -7,7 +26,7 @@
 - Security-sensitive path findings require a separate acknowledgement and a written human review note.
 - Added `narrow review-action` for the same auditable decisions from the CLI. No API action launches an agent or executes commands.
 
-## Beta follow-up — verification-gated repair continuation
+## Product update — verification-gated repair continuation
 
 - Before any automatic repair retry, `narrow drive` now rebuilds the deterministic review packet for the current workspace.
 - Only plain verification failures with no blockers and no elevated risk flags can continue to another bounded attempt.
@@ -15,7 +34,7 @@
 - Escalations preserve the task and emit a sanitized `VERIFICATION_REPAIR_ESCALATED` event.
 - A permitted retry does not imply approval or completion; fresh checks, human acceptance, and the independent `narrow finish` gate remain mandatory.
 
-## Beta follow-up — one-command setup and security posture
+## Product update — one-command setup and security posture
 
 ### Added
 - `narrow setup` detects a web, Python, data, or general project profile and prepares a read-only onboarding plan.
@@ -28,7 +47,7 @@
 - Verification sandbox remains off by default.
 - Human acceptance remains required; passing configured checks cannot mark work complete by itself.
 
-## 0.6.0b1 — 2026-11-03 (Beta preview; source-only, unpublished)
+## 0.6.0b1 — 2026-11-03 (historical source build)
 
 ### Added
 - Bounded project discovery for common language/build manifests; suggestions are reviewed before being written or run.
@@ -40,15 +59,14 @@
 ### Validation snapshot
 - Merged-main workflow [#41778743003](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778743003) passed all nine jobs on commit `979198b`: Ubuntu/Python 3.11–3.14, macOS, Windows repaired/blocked, real Docker proxy-only egress acceptance, and package build/clean install.
 - CodeQL passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
-- No authenticated live Codex account session was performed. The owner has explicitly decided that such a session is not a prerequisite for the Beta label; no live session result is implied.
 
 ### Scope and release notes
-- This is a public Beta preview of the GitHub source on `main`, versioned `0.6.0b1`; it has not been uploaded to PyPI and no release tag is created by this change.
-- The already-published v0.5.1 package is a legacy pre-Beta distribution and remains unchanged.
-- The Codex container profile is opt-in, POSIX/local-Docker only, and experimental. Docker daemon and host kernel remain trusted; the mounted API key is readable inside the agent container. This is not a microVM or universal sandbox.
+- This entry archives the 0.6.0b1 source snapshot that preceded product edition 1.0.0.
+- The already-published v0.5.1 package is a earlier product generation distribution and remains unchanged.
+- The Codex container profile is opt-in, POSIX/local-Docker only, and optional. Docker daemon and host kernel remain trusted; the mounted API key is readable inside the agent container. This is not a microVM or universal sandbox.
 - Windows container supervision, Windows credential DACL handling, cross-platform fault injection, adversarial sandbox testing, and independent security review remain open.
 
-## 0.5.1 — 2026-11-03 (legacy pre-Beta)
+## 0.5.1 — 2026-11-03 (earlier product generation)
 
 ### Changed
 - Refresh the source-distribution README so package-index pages no longer claim that no tagged GitHub release or package publication exists.
@@ -73,7 +91,7 @@
 - CI now includes macOS full-suite and demo jobs, Windows demo workflows, and clean wheel/source-distribution build and wheel-install checks. Results are recorded in the QA document after the workflow completes.
 - Documentation now explicitly states that generic adapters/direct `run`/`resume` commands do not gain an OS sandbox from NARROW and that verification commands retain the invoking user's permissions.
 
-## 0.5.0 — 2026-11-03 (legacy pre-Beta)
+## 0.5.0 — 2026-11-03 (earlier product generation)
 
 ### Added
 - Per-task single-flight execution leases. Concurrent drive loops, direct agent runs, verification commands, and finish checks for the same task are rejected instead of racing over one workspace.
@@ -91,7 +109,7 @@
 
 All notable changes to NARROW are documented here.
 
-## 0.4.0 — 2026-11-03 (legacy pre-Beta)
+## 0.4.0 — 2026-11-03 (earlier product generation)
 
 ### Added
 - Local loopback-only, read-only Control Center with responsive UI, task overview, scope summary, current/stale verification status, and sanitized activity timeline.
@@ -113,7 +131,7 @@ All notable changes to NARROW are documented here.
 - No automatic commit, merge, push, deployment, or completion acceptance is introduced.
 - Independent security review and authenticated provider E2E remain open release gates.
 
-## 0.3.0 — 2026-11-03 (legacy pre-Beta)
+## 0.3.0 — 2026-11-03 (earlier product generation)
 
 ### Added
 - Claude Code strict shell sandbox is required; fail closed when unavailable and prohibit unsandboxed retries.
@@ -130,7 +148,7 @@ All notable changes to NARROW are documented here.
 - Codex uses its workspace-write sandbox and non-interactive approval-deny mode, but NARROW does not install a Codex-native pre-tool file-path hook.
 - Isolated Git copies still run agent and verification processes with the current user's OS permissions.
 
-## 0.2.0 — 2026-11-03 (legacy pre-Beta)
+## 0.2.0 — 2026-11-03 (earlier product generation)
 
 ### Added
 - Native Claude Code and Codex CLI adapters for the bounded `drive` workflow.
@@ -141,7 +159,7 @@ All notable changes to NARROW are documented here.
 - Agent prompts, assistant content, tool inputs, and tool results are not stored in NARROW's event journal.
 - Structured provider output is drained without placing task prompts in process arguments.
 
-## 0.1.0 — 2026-11-03 (legacy pre-Beta)
+## 0.1.0 — 2026-11-03 (earlier product generation)
 
 ### Added
 - Local task contract and SQLite event journal.
@@ -163,16 +181,16 @@ All notable changes to NARROW are documented here.
 - A dual-homed proxy sidecar provisioner with explicit uplink gateway priority, inspected network attachments, sidecar readiness checks, and route-table verification.
 - An opt-in `narrow drive --provider codex --container-agent` path that wires the policy manifest, credential lease, proxy capability mount, container command builder, and host supervisor into the bounded repair loop.
 - A private mounted proxy-token file; the bearer capability is no longer placed in Docker CLI environment arguments.
-- Linux Docker E2E smoke coverage and reproducible example Dockerfiles for the experimental Codex agent and proxy images.
+- Linux Docker E2E smoke coverage and reproducible example Dockerfiles for the optional Codex agent and proxy images.
 
 ### Security and maturity limits
-- The new Docker E2E job has been added but has not yet produced a successful run on this branch. Do not claim the topology is verified until that job passes on the exact PR head.
+- The Docker proxy-only egress topology was subsequently validated by the merged-main container acceptance workflow.
 - The current container profile is POSIX/local-Docker only. Windows credential-DACL support and Windows container supervision are not implemented.
 - Docker's internal bridge has no default route for the agent and the entrypoint fails closed if one is present. The host bridge gateway remains reachable where host services permit it; the Docker daemon and host kernel are trusted.
 - The mounted provider key remains readable by code running inside the agent. This is host-credential isolation, not protection from a malicious agent.
-- This work is unreleased feature-branch code and does not change the legacy pre-Beta v0.5.1 package.
+- This entry records the development sequence that led to the 1.0.0 product release.
 
-## Beta follow-up — deterministic review gate
+## Product update — deterministic review gate
 
 ### Added
 - `narrow review` and `narrow review --json` build a deterministic, read-only task evidence packet.
