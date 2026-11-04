@@ -1,4 +1,4 @@
-# NARROW v0.5.0 Alpha — Release Notes
+# NARROW v0.5.0 legacy pre-Beta — Release Notes
 
 Release date: 2026-11-03
 
