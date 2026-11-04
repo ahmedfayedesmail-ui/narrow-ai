@@ -1,6 +1,6 @@
 # Python package publishing
 
-NARROW v0.5.1 is the corrected packaging Alpha release candidate. The earlier v0.5.0 package was successfully exercised on TestPyPI; its source README was older than the current repository documentation, so production publishing will use v0.5.1. PyPI publication is deliberately separate and uses PyPI Trusted Publishing (GitHub OIDC); no long-lived PyPI API token is stored in GitHub.
+NARROW v0.5.1 is the legacy pre-Beta packaging release. The earlier v0.5.0 package was successfully exercised on TestPyPI; its source README was older than the current repository documentation, so production publishing will use v0.5.1. PyPI publication is deliberately separate and uses PyPI Trusted Publishing (GitHub OIDC); no long-lived PyPI API token is stored in GitHub.
 
 ## Current distribution status
 
