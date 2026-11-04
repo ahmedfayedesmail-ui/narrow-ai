@@ -11,7 +11,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from narrow.core import Store, create_task, init_project, record_note
-from narrow.dashboard import DashboardServer, task_detail
+from narrow.dashboard import DashboardServer, task_detail, task_diff
 
 
 def git(root: Path, *args: str) -> str:
@@ -143,6 +143,28 @@ class DashboardTests(unittest.TestCase):
         script = asset_body.decode("utf-8")
         self.assertIn("narrow.dashboard.token", script)
         self.assertIn("X-NARROW-Token", script)
+
+    def test_dashboard_diff_endpoint_shows_tracked_and_untracked_text_changes(self):
+        (self.root / "src" / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+        new_file = Path(self.task["worktree"]) / "src" / "new.py"
+        new_file.write_text("ANSWER = 42\n", encoding="utf-8")
+        status, _, body = self.request("GET", f"/api/v1/tasks/{self.task['id']}/diff")
+        self.assertEqual(status, 200)
+        data = json.loads(body)
+        self.assertEqual(data["schema"], "narrow.dashboard.diff.v1")
+        self.assertIn("-VALUE = 1", data["diff"])
+        self.assertIn("+VALUE = 2", data["diff"])
+        self.assertIn("+ANSWER = 42", data["diff"])
+        self.assertEqual(data["allowed"], ["src/app.py", "src/new.py"])
+        self.assertEqual(data["outside"], [])
+        self.assertEqual(data["denied"], [])
+
+    def test_dashboard_diff_rejects_unsafe_workspace_links(self):
+        target = Path(self.task["worktree"]) / "src" / "redirect.py"
+        target.symlink_to(self.root / "src" / "app.py")
+        data = task_diff(self.store, self.task["id"])
+        self.assertTrue(data["unsafe_links"])
+        self.assertEqual(data["diff"], "")
 
     def test_task_detail_never_returns_check_output_or_note_payloads(self):
         detail = task_detail(self.store, self.task["id"])
