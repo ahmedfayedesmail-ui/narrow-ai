@@ -10,10 +10,10 @@ from pathlib import Path
 from typing import Any
 
 _PROFILE_DIRS = {
-    "web": ("src", "app", "pages", "components", "lib", "tests", "test"),
+    "web": ("src", "app", "pages", "components", "lib", "packages", "tests", "test"),
     "python": ("src", "tests", "test", "scripts"),
     "data": ("src", "tests", "test", "scripts", "notebooks", "pipelines"),
-    "general": ("src", "app", "lib", "tests", "test"),
+    "general": ("src", "app", "lib", "packages", "tests", "test"),
 }
 _PROFILE_DESCRIPTIONS = {
     "web": "Web application: source/UI folders and test folders only.",
@@ -124,7 +124,7 @@ def profile_scope_defaults(root: Path, profile: Any) -> tuple[list[str], list[st
                 continue
             name = match.group(1)
             candidate = root / name
-            if name in _RESERVED_DIRS or candidate.is_symlink() or not candidate.is_dir():
+            if name not in _PROFILE_DIRS[profile["name"]] or name in _RESERVED_DIRS or candidate.is_symlink() or not candidate.is_dir():
                 continue
             try:
                 if candidate.resolve(strict=True).is_relative_to(root) and item not in allowed:
