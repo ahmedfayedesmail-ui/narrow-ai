@@ -4,10 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing release tag to build and publish (for example v0.5.1)
+        description: Existing release tag to build and publish (for example v1.0.0)
         required: true
         type: string
-        default: v0.5.1
+        default: v1.0.0
       target:
         description: Publish destination
         required: true
@@ -53,7 +53,7 @@ jobs:
           if target not in {"pypi", "testpypi"}:
               raise SystemExit("Publish target must be pypi or testpypi")
           if not tag.startswith("v") or len(tag) < 3:
-              raise SystemExit("Release tag must look like v0.5.1")
+              raise SystemExit("Release tag must look like v1.0.0")
           version = tomllib.loads(Path("pyproject.toml").read_text())["project"]["version"]
           if tag[1:] != version:
               raise SystemExit(f"Tag {tag} does not match pyproject version {version}")
