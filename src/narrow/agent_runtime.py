@@ -84,6 +84,57 @@ def normalize_provider_argv(provider: str, command: list[str]) -> list[str]:
     return result
 
 
+def validate_claude_container_settings(
+    settings_path: Path | str,
+    mcp_path: Path | str,
+) -> tuple[Path, Path]:
+    """Verify the exact manifest-hook settings profile allowed inside Docker."""
+    settings_file = Path(settings_path)
+    mcp_file = Path(mcp_path)
+    for item in (settings_file, mcp_file):
+        try:
+            metadata = item.lstat()
+            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+                raise NarrowError("Claude container settings must be regular, unlinked host files.")
+        except OSError as exc:
+            raise NarrowError("Claude container settings are missing or unavailable.") from exc
+    try:
+        settings_data = json.loads(settings_file.read_text(encoding="utf-8"))
+        mcp_data = json.loads(mcp_file.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise NarrowError("Claude container settings are not valid task-local JSON.") from exc
+    if not isinstance(settings_data, dict) or "sandbox" in settings_data:
+        raise NarrowError("Claude container settings must delegate containment to the outer Docker boundary.")
+    permissions = settings_data.get("permissions")
+    if not isinstance(permissions, dict) or permissions.get("blockReadsOutsideWorkingDirectories") is not True:
+        raise NarrowError("Claude container settings must retain the working-directory read restriction.")
+    hooks = settings_data.get("hooks")
+    if not isinstance(hooks, dict) or "PreToolUse" not in hooks:
+        raise NarrowError("Claude container settings must include the NARROW direct-file PreToolUse gate.")
+    allowed_events = {
+        "session-start", "pre-tool-use", "post-tool-use", "post-tool-use-failure",
+        "pre-compact", "stop", "session-end", "subagent-start", "subagent-stop",
+        "task-created", "task-completed",
+    }
+    for hook_groups in hooks.values():
+        if not isinstance(hook_groups, list):
+            raise NarrowError("Claude container hook settings are malformed.")
+        for group in hook_groups:
+            hook_list = group.get("hooks") if isinstance(group, dict) else None
+            if not isinstance(hook_list, list):
+                raise NarrowError("Claude container hook settings are malformed.")
+            for hook in hook_list:
+                command = hook.get("command") if isinstance(hook, dict) else None
+                if not isinstance(command, str) or not command.startswith("python -m narrow hook claude "):
+                    raise NarrowError("Claude container hooks must invoke the in-image manifest-only hook CLI.")
+                event = command.removeprefix("python -m narrow hook claude ")
+                if event not in allowed_events:
+                    raise NarrowError("Claude container hook command contains an unsupported event.")
+    if mcp_data != {"mcpServers": {}}:
+        raise NarrowError("Claude container MCP configuration must be exactly empty.")
+    return settings_file, mcp_file
+
+
 def _validated_mount_source(value: Path | str, *, directory: bool) -> str:
     """Return one real absolute POSIX bind source without Docker CSV ambiguity."""
     source = Path(value)
@@ -202,31 +253,7 @@ def build_docker_agent_command(
         expected_mcp = Path(credential_lease.state_dir) / "providers" / task_id / "claude-mcp.json"
         if Path(claude_settings).resolve(strict=True) != expected_settings.resolve(strict=True) or Path(claude_mcp).resolve(strict=True) != expected_mcp.resolve(strict=True):
             raise NarrowError("Claude container settings must be the exact task-scoped NARROW-generated files.")
-        try:
-            settings_data = json.loads(Path(claude_settings).read_text(encoding="utf-8"))
-            mcp_data = json.loads(Path(claude_mcp).read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-            raise NarrowError("Claude container settings are not valid task-local JSON.") from exc
-        if not isinstance(settings_data, dict) or "sandbox" in settings_data:
-            raise NarrowError("Claude container settings must delegate process/filesystem/network containment to the outer Docker boundary.")
-        if settings_data.get("permissions", {}).get("blockReadsOutsideWorkingDirectories") is not True:
-            raise NarrowError("Claude container settings must retain the working-directory read restriction.")
-        hooks = settings_data.get("hooks")
-        if not isinstance(hooks, dict) or "PreToolUse" not in hooks:
-            raise NarrowError("Claude container settings must include the NARROW direct-file PreToolUse gate.")
-        for hook_groups in hooks.values():
-            if not isinstance(hook_groups, list):
-                raise NarrowError("Claude container hook settings are malformed.")
-            for group in hook_groups:
-                hook_list = group.get("hooks") if isinstance(group, dict) else None
-                if not isinstance(hook_list, list):
-                    raise NarrowError("Claude container hook settings are malformed.")
-                for hook in hook_list:
-                    expected_prefix = "python -m narrow hook claude "
-                    if not isinstance(hook, dict) or not isinstance(hook.get("command"), str) or not hook["command"].startswith(expected_prefix):
-                        raise NarrowError("Claude container hooks must invoke the in-image NARROW manifest-only hook CLI.")
-        if mcp_data != {"mcpServers": {}}:
-            raise NarrowError("Claude container MCP configuration must be exactly empty.")
+        validate_claude_container_settings(claude_settings, claude_mcp)
     elif claude_settings_file is not None or claude_mcp_file is not None:
         raise NarrowError("Codex container execution does not accept Claude settings mounts.")
     network = f"narrow-agent-{task_id[:32]}-{execution.replace('-', '')[:12]}"
