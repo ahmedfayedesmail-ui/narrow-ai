@@ -111,6 +111,55 @@ class AgentRuntimePlanTests(unittest.TestCase):
             with self.assertRaisesRegex(NarrowError, "exactly empty"):
                 validate_claude_container_settings(settings, mcp)
 
+    def test_claude_container_rejects_an_empty_pretool_gate(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            settings = root / "settings.json"
+            mcp = root / "mcp.json"
+            events = {
+                "SessionStart": "session-start",
+                "PreToolUse": "pre-tool-use",
+                "PostToolUse": "post-tool-use",
+                "PostToolUseFailure": "post-tool-use-failure",
+                "SubagentStart": "subagent-start",
+                "SubagentStop": "subagent-stop",
+                "TaskCreated": "task-created",
+                "TaskCompleted": "task-completed",
+                "PreCompact": "pre-compact",
+                "Stop": "stop",
+                "SessionEnd": "session-end",
+            }
+            hooks = {}
+            for name, event in events.items():
+                group = {"hooks": [{
+                    "type": "command",
+                    "command": f"python -m narrow hook claude {event}",
+                    "timeout": 5,
+                }]}
+                if name == "PreToolUse":
+                    group.update({
+                        "matcher": "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit",
+                    })
+                    group["hooks"][0]["onFailure"] = "block"
+                elif name in {"PostToolUse", "PostToolUseFailure"}:
+                    group["matcher"] = (
+                        "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit"
+                        if name == "PostToolUse"
+                        else "Bash|Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit|Agent"
+                    )
+                hooks[name] = [group]
+            hooks["PreToolUse"] = []
+            settings.write_text(json.dumps({
+                "permissions": {
+                    "defaultMode": "default",
+                    "blockReadsOutsideWorkingDirectories": True,
+                },
+                "hooks": hooks,
+            }), encoding="utf-8")
+            mcp.write_text(json.dumps({"mcpServers": {}}), encoding="utf-8")
+            with self.assertRaisesRegex(NarrowError, "file-policy hooks"):
+                validate_claude_container_settings(settings, mcp)
+
     def test_rejects_missing_prompt_sentinel(self):
         command = ["codex", "exec", "--json", "--cd", "/tmp/task", "--sandbox", "workspace-write", "--ask-for-approval", "never"]
         with self.assertRaises(NarrowError):
