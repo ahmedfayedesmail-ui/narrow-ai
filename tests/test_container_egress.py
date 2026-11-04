@@ -13,6 +13,7 @@ from narrow.container_egress import (
     provision_execution_egress_proxy,
     remove_execution_proxy_token_file,
     run_codex_container_agent,
+    run_provider_container_agent,
 )
 from narrow.credential_broker import CredentialLease
 from narrow.container_lifecycle import (
