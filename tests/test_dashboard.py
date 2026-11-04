@@ -131,7 +131,7 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertEqual(status, 403)
         status, _, _ = self.request(
-            "DELETE", "/api/v1/tasks", body=b"{}", origin=same_origin
+            "DELETE", "/api/v1/tasks", body=b"{}", origin=None
         )
         self.assertEqual(status, 403)
 
