@@ -92,8 +92,8 @@ class ReviewGateTests(unittest.TestCase):
     def test_out_of_scope_and_denied_paths_are_blockers(self):
         (self.workspace / "docs").mkdir()
         (self.workspace / "docs" / "notes.md").write_text("outside\n", encoding="utf-8")
-        (self.workspace / "src" / "auth").mkdir()
-        (self.workspace / "src" / "auth" / "provider.py").write_text("token = None\n", encoding="utf-8")
+        (self.workspace / "src" / "authentication").mkdir()
+        (self.workspace / "src" / "authentication" / "provider.py").write_text("token = None\n", encoding="utf-8")
         report = build_review_report(self.store, self.task["id"])
         self.assertEqual(report["decision"], "BLOCKED")
         scope_gate = next(item for item in report["gates"] if item["name"] == "scope")
@@ -198,8 +198,8 @@ class ReviewGateTests(unittest.TestCase):
         self.assertIn("VERIFIED_COMPLETE", events)
 
     def test_sensitive_approval_requires_explicit_acknowledgement_and_note(self):
-        (self.workspace / "src" / "auth").mkdir()
-        (self.workspace / "src" / "auth" / "provider.py").write_text("AUTH_MODE = 'safe'\\n", encoding="utf-8")
+        (self.workspace / "src" / "authentication").mkdir()
+        (self.workspace / "src" / "authentication" / "provider.py").write_text("AUTH_MODE = 'safe'\\n", encoding="utf-8")
         self._configure_and_pass()
         for index in (1, 2):
             accept_criterion(self.store, self.task["id"], index, "Reviewed the current implementation and tests.")
