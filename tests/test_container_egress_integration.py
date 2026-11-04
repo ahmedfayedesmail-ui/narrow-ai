@@ -59,7 +59,8 @@ class ContainerEgressDockerE2ETests(unittest.TestCase):
             runtime = None
             try:
                 runtime = provision_execution_egress_proxy(
-                    store, task["id"], execution_id, proxy_image, ["api.openai.com"]
+                    store, task["id"], execution_id, proxy_image,
+                    ["api.openai.com", "api.anthropic.com"],
                 )
                 probe = r'''
 import base64
@@ -97,32 +98,33 @@ def connect_tunnel(host):
         raise RuntimeError("proxy returned an incomplete CONNECT response")
     status = bytes(response).split(b"\r\n", 1)[0].decode("ascii", "replace")
     return sock, status
-tunnel, status = connect_tunnel("api.openai.com")
-if " 200 " not in status:
-    tunnel.close()
-    raise SystemExit(f"allowlisted provider CONNECT failed: {status}")
-tls = ssl.create_default_context().wrap_socket(tunnel, server_hostname="api.openai.com")
-tls.sendall(b"GET / HTTP/1.1\r\nHost: api.openai.com\r\nConnection: close\r\n\r\n")
-response = bytearray()
-while b"\r\n\r\n" not in response and len(response) <= 16 * 1024:
-    chunk = tls.recv(4096)
-    if not chunk:
-        break
-    response.extend(chunk)
-tls.close()
-if not response:
-    raise SystemExit("allowlisted provider returned no HTTPS response")
-try:
-    provider_status = int(bytes(response).split(b"\r\n", 1)[0].split()[1])
-except (ValueError, IndexError):
-    raise SystemExit("allowlisted provider returned a malformed HTTPS status line")
-if provider_status >= 500:
-    raise SystemExit(f"allowlisted provider returned HTTP {provider_status}")
+for provider_host in ("api.openai.com", "api.anthropic.com"):
+    tunnel, status = connect_tunnel(provider_host)
+    if " 200 " not in status:
+        tunnel.close()
+        raise SystemExit(f"allowlisted provider CONNECT failed for {provider_host}: {status}")
+    tls = ssl.create_default_context().wrap_socket(tunnel, server_hostname=provider_host)
+    tls.sendall(f"GET / HTTP/1.1\\r\\nHost: {provider_host}\\r\\nConnection: close\\r\\n\\r\\n".encode("ascii"))
+    response = bytearray()
+    while b"\\r\\n\\r\\n" not in response and len(response) <= 16 * 1024:
+        chunk = tls.recv(4096)
+        if not chunk:
+            break
+        response.extend(chunk)
+    tls.close()
+    if not response:
+        raise SystemExit(f"allowlisted provider {provider_host} returned no HTTPS response")
+    try:
+        provider_status = int(bytes(response).split(b"\\r\\n", 1)[0].split()[1])
+    except (ValueError, IndexError):
+        raise SystemExit(f"allowlisted provider {provider_host} returned a malformed HTTPS status line")
+    if provider_status >= 500:
+        raise SystemExit(f"allowlisted provider {provider_host} returned HTTP {provider_status}")
 denied, denied_status = connect_tunnel("example.com")
 denied.close()
 if " 403 " not in denied_status:
     raise SystemExit(f"non-allowlisted destination was not denied by proxy policy: {denied_status}")
-print("proxy-only egress smoke passed")
+print("dual-provider proxy-only egress smoke passed")
 '''
                 command = [
                     "docker", "run", "--rm",
