@@ -10,6 +10,7 @@ import difflib
 import hmac
 import ipaddress
 import json
+import os
 import re
 import secrets
 import stat
@@ -298,18 +299,29 @@ def task_diff(store: Store, task_id: str, *, max_bytes: int = 96 * 1024) -> dict
             metadata = candidate.lstat()
         except (OSError, RuntimeError):
             continue
-        if (
-            candidate.is_symlink()
-            or not resolved.is_relative_to(workspace.resolve())
-            or not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_nlink != 1
-        ):
+        if candidate.is_symlink() or not resolved.is_relative_to(workspace.resolve()):
             result["unsafe_links"].append(normalized)
             continue
-        if metadata.st_size > 32 * 1024:
+        try:
+            descriptor = os.open(
+                candidate,
+                os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0) | getattr(os, "O_CLOEXEC", 0),
+            )
+            with os.fdopen(descriptor, "rb", closefd=True) as handle:
+                opened = os.fstat(handle.fileno())
+                if not stat.S_ISREG(opened.st_mode) or opened.st_nlink != 1:
+                    result["unsafe_links"].append(normalized)
+                    continue
+                if opened.st_size > 32 * 1024:
+                    chunks.append(f"\n--- /dev/null\n+++ b/{normalized}\n[untracked file omitted: exceeds 32 KiB]\n")
+                    continue
+                raw = handle.read(32 * 1024 + 1)
+        except OSError:
+            result["unsafe_links"].append(normalized)
+            continue
+        if len(raw) > 32 * 1024:
             chunks.append(f"\n--- /dev/null\n+++ b/{normalized}\n[untracked file omitted: exceeds 32 KiB]\n")
             continue
-        raw = candidate.read_bytes()
         if b"\x00" in raw:
             chunks.append(f"\n--- /dev/null\n+++ b/{normalized}\n[binary untracked file omitted]\n")
             continue
@@ -329,8 +341,16 @@ def task_diff(store: Store, task_id: str, *, max_bytes: int = 96 * 1024) -> dict
         result["truncated"] = True
         combined = encoded[:max_bytes].decode("utf-8", "ignore") + "\n[diff preview truncated at 96 KiB; use the task worktree for the complete diff]\n"
     result["diff"] = combined
-    ignored = [path for path in paths if path not in untracked and path not in scope["allowed"] + scope["outside"] + scope["denied"]]
-    result["omitted_ignored"] = len(ignored)
+    ignored_result = subprocess.run(
+        ["git", "-C", str(workspace), "ls-files", "--others", "--ignored", "--exclude-standard", "-z", "--", *paths],
+        capture_output=True,
+        timeout=10,
+        check=False,
+        env=safe_git_environment(root=workspace),
+    )
+    if ignored_result.returncode == 0:
+        ignored_paths = {item.decode("utf-8", "replace") for item in ignored_result.stdout.split(b"\0") if item}
+        result["omitted_ignored"] = len(ignored_paths.intersection(paths))
     return result
 
 
