@@ -1,7 +1,7 @@
-# Experimental Codex Agent and Egress Proxy Images
+# Experimental Claude/Codex Agent and Egress Proxy Images
 
 These Dockerfiles are starting points for the experimental `--container-agent`
-profile. They are not published or independently audited base images. Supply
+profile for the native Claude and Codex adapters. They are not published or independently audited base images. Supply
 platform-specific immutable base-image digests; do not build from mutable tags.
 
 ## Build
@@ -13,7 +13,8 @@ the reviewed Linux/amd64 digests from the relevant official image manifests:
 docker build -f examples/containers/codex-agent.Dockerfile \
   --build-arg BASE_IMAGE='node:22-bookworm-slim@sha256:<verified-digest>' \
   --build-arg CODEX_VERSION=0.166.0 \
-  -t ghcr.io/your-org/narrow-codex-agent:review .
+  --build-arg CLAUDE_CODE_VERSION=2.1.311 \
+  -t ghcr.io/your-org/narrow-agent:review .
 
 docker build -f examples/containers/egress-proxy.Dockerfile \
   --build-arg BASE_IMAGE='python:3.12-slim-bookworm@sha256:<verified-digest>' \
@@ -22,18 +23,17 @@ docker build -f examples/containers/egress-proxy.Dockerfile \
 
 Push both images to a registry you control, then resolve their immutable
 registry digests. Put those `@sha256:` references into `.narrow/config.json`.
-The Codex image installs an exact npm package version; update it only through
-a reviewed image rebuild and a new digest. Version `0.166.0` is the npm package
-version recorded by the upstream registry when this example was written.
+The shared agent image installs exact versions of the Codex and Claude Code CLIs; update either only through a reviewed image rebuild and a new digest. Claude Code version `2.1.311` is pinned to the npm stable tag at the time this image profile was prepared.
 
 ## Runtime requirements
 
 - Linux/POSIX host, local default Docker context, non-root host UID/GID.
 - Docker Engine with `docker network connect --gw-priority` support.
-- `OPENAI_API_KEY` explicitly present in the host environment. NARROW never
-  reads Codex's interactive login profile for this mode.
+- Exactly one explicit provider credential: `OPENAI_API_KEY` for Codex or
+  `ANTHROPIC_API_KEY` for Claude. NARROW never reads either provider's
+  interactive login profile for this mode.
 - An allowlist containing the exact provider API DNS endpoints required by
-  your Codex CLI/account configuration.
+  the selected provider/account configuration.
 - A Codex CLI build and Python runtime compatible with the `narrow` source
   snapshot embedded in both images.
 
@@ -46,3 +46,7 @@ allowlisted provider connectivity, route absence in the agent, uplink routing
 in the proxy, process cleanup, daemon interruption, and host-gateway access.
 A Docker bridge and daemon are still trusted infrastructure; this is not a
 microVM and does not protect against the host or Docker administrator.
+
+The shared agent image contains both provider CLIs. The image build pins each CLI version independently; CI runs both `--version` commands as an image smoke test. Do not use mutable `latest` tags for either CLI or for the OCI image reference.
+
+The same `agent_container.image` can be used for either native provider. For Claude, configure the egress allowlist to include `api.anthropic.com` where required by your account. For Codex, configure the required OpenAI API hostname. The selected API key is readable by the running provider process; the host provider home/login profile is never mounted.
