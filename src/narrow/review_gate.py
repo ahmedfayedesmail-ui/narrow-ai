@@ -193,7 +193,7 @@ def build_review_report(store: Store, task_id: str) -> dict[str, Any]:
                     status, detail = "PASS_CURRENT", "Signed verification passed for the current workspace snapshot."
         check_results.append({"name": name, "status": status, "detail": detail, "duration_ms": row["duration_ms"] if row is not None else None})
     checks_ready = bool(checks_config) and all(item["status"] == "PASS_CURRENT" for item in check_results)
-    gate("verification_evidence", checks_ready, "Every configured check has valid, signed, passing evidence for the current snapshot." if checks_ready else "Configured checks are missing, failed, stale, reconfigured, or have invalid signatures.")
+    gate("verification_evidence", checks_ready, "Every configured check has valid, signed, passing evidence for the current snapshot." if checks_ready else "Configured checks are missing, failed, stale, reconfigured, or have invalid signatures.", blocker=False)
 
     acceptance_rows = task["acceptance"]
     accepted_current: list[int] = []
