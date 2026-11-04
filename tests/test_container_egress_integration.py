@@ -80,31 +80,31 @@ authorization = base64.b64encode(f"narrow:{token}".encode("ascii")).decode("asci
 def connect_tunnel(host):
     sock = socket.create_connection(("narrow-egress-proxy", 3128), timeout=10)
     request = (
-        f"CONNECT {host}:443 HTTP/1.1\\r\\n"
-        f"Host: {host}:443\\r\\n"
-        f"Proxy-Authorization: Basic {authorization}\\r\\n"
-        "Proxy-Connection: keep-alive\\r\\n\\r\\n"
+        f"CONNECT {host}:443 HTTP/1.1\r\n"
+        f"Host: {host}:443\r\n"
+        f"Proxy-Authorization: Basic {authorization}\r\n"
+        "Proxy-Connection: keep-alive\r\n\r\n"
     ).encode("ascii")
     sock.sendall(request)
     response = bytearray()
-    while b"\\r\\n\\r\\n" not in response and len(response) <= 16 * 1024:
+    while b"\r\n\r\n" not in response and len(response) <= 16 * 1024:
         chunk = sock.recv(4096)
         if not chunk:
             break
         response.extend(chunk)
-    if len(response) > 16 * 1024 or b"\\r\\n\\r\\n" not in response:
+    if len(response) > 16 * 1024 or b"\r\n\r\n" not in response:
         sock.close()
         raise RuntimeError("proxy returned an incomplete CONNECT response")
-    status = bytes(response).split(b"\\r\\n", 1)[0].decode("ascii", "replace")
+    status = bytes(response).split(b"\r\n", 1)[0].decode("ascii", "replace")
     return sock, status
 tunnel, status = connect_tunnel("api.openai.com")
 if " 200 " not in status:
     tunnel.close()
     raise SystemExit(f"allowlisted provider CONNECT failed: {status}")
 tls = ssl.create_default_context().wrap_socket(tunnel, server_hostname="api.openai.com")
-tls.sendall(b"GET / HTTP/1.1\\r\\nHost: api.openai.com\\r\\nConnection: close\\r\\n\\r\\n")
+tls.sendall(b"GET / HTTP/1.1\r\nHost: api.openai.com\r\nConnection: close\r\n\r\n")
 response = bytearray()
-while b"\\r\\n\\r\\n" not in response and len(response) <= 16 * 1024:
+while b"\r\n\r\n" not in response and len(response) <= 16 * 1024:
     chunk = tls.recv(4096)
     if not chunk:
         break
@@ -113,7 +113,7 @@ tls.close()
 if not response:
     raise SystemExit("allowlisted provider returned no HTTPS response")
 try:
-    provider_status = int(bytes(response).split(b"\\r\\n", 1)[0].split()[1])
+    provider_status = int(bytes(response).split(b"\r\n", 1)[0].split()[1])
 except (ValueError, IndexError):
     raise SystemExit("allowlisted provider returned a malformed HTTPS status line")
 if provider_status >= 500:
