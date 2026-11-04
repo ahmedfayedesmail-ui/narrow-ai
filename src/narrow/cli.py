@@ -237,8 +237,8 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print("Review this plan, then run narrow setup --apply to save the profile and add missing check suggestions.")
         return 0
 
-    init_project(root)
-    config = load_config(root)
+    config_path = root / ".narrow" / "config.json"
+    config = load_config(root) if config_path.is_file() else default_config()
     existing = config.setdefault("checks", {})
     additions: dict[str, dict[str, Any]] = {}
     conflicts: list[str] = []
@@ -276,7 +276,14 @@ def cmd_setup(args: argparse.Namespace) -> int:
         print("Cancelled. No setup changes were saved.")
         return 1
 
-    existing.update(additions)
+    # Only initialize local state after the user confirms the proposed setup.
+    init_project(root)
+    config = load_config(root)
+    existing = config.setdefault("checks", {})
+    for name, spec in additions.items():
+        # Re-check after confirmation so a concurrent/manual edit is never replaced.
+        if name not in existing:
+            existing[name] = spec
     config["project_profile"] = profile_record
     write_internal_file(root / ".narrow", "config.json", json.dumps(config, ensure_ascii=False, indent=2) + "\n")
     print(f"Saved project profile '{plan['profile']}' and added {len(additions)} check suggestion(s) to .narrow/config.json.")
