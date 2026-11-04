@@ -4,15 +4,15 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "narrow-ai"
-version = "0.6.0b1"
-description = "A safety-first task continuity and execution coordinator for AI coding agents."
+version = "1.0.0"
+description = "Local-first AI coding workflow supervision with evidence-driven verification and human review."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }
 authors = [{ name = "NARROW contributors" }]
 keywords = ["ai-agents", "developer-tools", "task-continuity", "git", "safety"]
 classifiers = [
-  "Development Status :: 4 - Beta",
+  "Development Status :: 5 - Production/Stable",
   "Environment :: Console",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
