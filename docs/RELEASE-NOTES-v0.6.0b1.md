@@ -20,4 +20,4 @@ Status: Public Beta preview on GitHub `main`; source-only and not yet published 
 
 The Codex container runtime is opt-in, experimental, and supported only on POSIX hosts using the local Docker default context. The Docker daemon and host kernel remain trusted. The mounted provider API key is readable by code inside the agent container. This is not a microVM, a universal sandbox, or an independent security review.
 
-Windows container supervision and credential DACL support, cross-platform fault injection, adversarial boundary testing, and independent security review remain open. The already-published v0.5.1 package remains Alpha and unchanged.
+Windows container supervision and credential DACL support, cross-platform fault injection, adversarial boundary testing, and independent security review remain open. The already-published v0.5.1 package is a legacy pre-Beta distribution and remains unchanged.
