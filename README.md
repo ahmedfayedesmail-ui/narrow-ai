@@ -8,7 +8,7 @@ NARROW is a local-first task continuity and completion supervisor for AI coding 
 
 It works with the coding agents you already have. NARROW itself does not require an API key or upload source code to a NARROW service. Provider authentication and usage remain with the provider's own CLI and account.
 
-> **Beta preview — v0.6.0b1 (unreleased source snapshot).** NARROW is a task supervisor and evidence recorder, not a guarantee that an agent is safe or a change is correct. It is not a universal OS sandbox or a stable release. The published v0.5.1 PyPI package remains Alpha and is unchanged. Read [SECURITY.md](SECURITY.md) and [the threat model](docs/THREAT_MODEL.md) before using it on valuable repositories.
+> **Beta preview — v0.6.0b1 (unreleased source snapshot).** NARROW is a task supervisor and evidence recorder, not a guarantee that an agent is safe or a change is correct. It is not a universal OS sandbox or a stable release. The older published v0.5.1 PyPI package predates the current Beta source and does not include these changes. Read [SECURITY.md](SECURITY.md) and [the threat model](docs/THREAT_MODEL.md) before using it on valuable repositories.
 
 ## Beta preview highlights
 
@@ -37,7 +37,7 @@ This is coordination, not a universal machine sandbox. Windows supervised proces
 
 ## Beta preview capabilities on main
 
-The current Beta preview on `main` includes four opt-in capabilities added after the published v0.5.1 Alpha package:
+The current Beta preview on `main` includes four opt-in capabilities added after the older published v0.5.1 pre-Beta package:
 
 - Project discovery: narrow discover inspects common project manifests and suggests test commands. It never runs discovered commands. Use narrow discover --apply to review and add new suggestions to .narrow/config.json.
 - Task proposals: narrow propose "Fix the login timeout" drafts a contract without creating a task. Add --ollama to use a model already installed in local Ollama. The model request goes only to 127.0.0.1 and may include a small, bounded selection of source files; it is optional. Every proposed path and criterion requires human review.
@@ -69,7 +69,7 @@ Use the exact provider endpoints needed by your account in `egress_allow_hosts`;
 
 Third-party provider integrations can be installed through the narrow.adapters Python entry-point group. This is an extension mechanism, not built-in LangChain, CrewAI, or AutoGen support. See docs/PROVIDER_PLUGINS.md, docs/SANDBOXING.md, and docs/AGENT_SANDBOX_DESIGN.md for installation, configuration, and the remaining agent-container acceptance gates.
 
-The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created suspended inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; NARROW verifies Job membership before resuming the initial thread. There is no post-creation assignment window or suspended child outside the Job. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. The Beta preview is available from the `main` source branch. The published v0.5.1 PyPI package remains Alpha and does not include these changes.
+The dashboard remains read-only, and its API now requires a random per-launch token carried in the URL fragment and sent in a custom request header; Host and Origin checks remain in force. Mutation controls are still disabled. On Windows 10 / Windows Server 2016 and newer, supervised children are created suspended inside a kill-on-close Job Object through `PROC_THREAD_ATTRIBUTE_JOB_LIST`; NARROW verifies Job membership before resuming the initial thread. There is no post-creation assignment window or suspended child outside the Job. Unsupported or incompatible Job setups fail closed. Broker-created processes and daemon-managed containers are not guaranteed to be covered, and hard-kill/deep-descendant Windows tests still need a real Windows run. MicroVM support, turnkey framework-specific plugins, a default sandbox around the AI agent itself, and interactive dashboard authorization remain open engineering gates. The Beta preview is available from the `main` source branch. The older published v0.5.1 PyPI package predates the current Beta source and does not include these changes.
 
 ## Try the Beta preview workflow (main source branch)
 
@@ -112,7 +112,7 @@ python -m pip install .
 narrow --version
 ```
 
-The current GitHub `main` branch is the unreleased `0.6.0b1` Beta preview. The published `v0.5.1` PyPI package remains Alpha and is unchanged. See [the Beta preview release notes](docs/RELEASE-NOTES-v0.6.0b1.md), [the v0.5.1 release notes](docs/RELEASE-NOTES-v0.5.1.md), and [the Python publishing guide](docs/PUBLISHING.md).
+The current GitHub `main` branch is the unreleased `0.6.0b1` Beta preview. The older published `v0.5.1` PyPI package predates the current Beta source and is unchanged. See [the Beta preview release notes](docs/RELEASE-NOTES-v0.6.0b1.md), [the v0.5.1 release notes](docs/RELEASE-NOTES-v0.5.1.md), and [the Python publishing guide](docs/PUBLISHING.md).
 
 For a reproducible source install:
 
@@ -286,7 +286,7 @@ See [the safety model](docs/SAFETY_MODEL.md), [the threat model](docs/THREAT_MOD
 - CodeQL also passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
 - No authenticated live Codex account session was performed. The project owner has explicitly decided that such a session is not required for the Beta label; no live provider execution is claimed.
 - CI and deterministic fake-agent results are not an independent security audit, universal sandbox assessment, or proof of semantic correctness.
-- The published `v0.5.1` PyPI package remains Alpha and unchanged. Android/Termux remains unsupported and unvalidated.
+- The older published `v0.5.1` PyPI package predates the current Beta source. Android/Termux remains unsupported and unvalidated.
 ## Contributing
 
 Read [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). Safety regressions, privacy leakage, and unbounded execution are release blockers.
