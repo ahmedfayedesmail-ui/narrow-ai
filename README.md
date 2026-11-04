@@ -105,6 +105,12 @@ The contract proposal does not silently approve scope. NARROW prints the propose
 6. **Verify and repair.** Explicitly configured checks run under a bounded repair budget. A failure can trigger a limited repair attempt; repeated failure becomes a blocked/review state.
 7. **Require human acceptance.** NARROW does not equate an agent saying “done” or a green test with semantic correctness. A human reviews the diff and confirms acceptance criteria before `finish` can mark the task verified.
 
+## Diff review and human review queue
+
+The local Control Center now shows tasks waiting for review and a bounded unified diff preview for the selected task. It labels changes against the task allow/deny contract and withholds previews when unsafe workspace links or hard-linked files are detected. The preview is read-only and truncates at 96 KiB; it never executes code or sends diffs to a remote service.
+
+Human decisions remain explicit in the CLI: use `narrow accept --criterion N --evidence "..."` to confirm each acceptance criterion, then `narrow finish` to re-check current-snapshot verification, scope, and original-checkout invariants. The dashboard deliberately has no approve/reject mutation endpoint; viewing a diff is not consent to execute, merge, commit, or complete work.
+
 ## One-command project setup
 
 From the root of a Git repository:
