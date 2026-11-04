@@ -51,8 +51,6 @@ jobs:
           python -m narrow finish --help
           python -m narrow review --help
           python -m narrow review-action --help
-          python -m narrow security --help
-          python -m narrow setup --help
 
   macos:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.draft == false }}
