@@ -29,7 +29,7 @@ from .providers import (
     latest_provider_session_id,
     make_event_callback,
 )
-from .container_egress import run_codex_container_agent
+from .container_egress import run_provider_container_agent
 from .agent_runtime import validate_agent_image
 
 
@@ -156,8 +156,10 @@ def _drive_task_unlocked(
         raise NarrowError("Choose exactly one execution adapter: --provider claude|codex or a configured --agent NAME.")
     container_settings: dict[str, Any] = {}
     if container_agent:
-        if provider != "codex" or agent_name is not None:
-            raise NarrowError("--container-agent is supported only with the native --provider codex adapter.")
+        if provider not in {"claude", "codex"} or agent_name is not None:
+            raise NarrowError("--container-agent is supported only with the native --provider claude or codex adapter.")
+        if allow_subagents or ultracode:
+            raise NarrowError("The container profile does not yet expose provider-managed subagents; disable --allow-subagents and --ultracode.")
         container_settings_value = config.get("agent_container")
         if not isinstance(container_settings_value, dict):
             raise NarrowError("Configure agent_container in .narrow/config.json before using --container-agent.")
@@ -270,7 +272,7 @@ def _drive_task_unlocked(
         "subagents_enabled": allow_subagents,
         "effort": effort,
         "ultracode": ultracode,
-        "execution_mode": "codex-container" if container_agent else "native",
+        "execution_mode": f"{provider}-container" if container_agent else "native",
         "checks": list(checks),
     })
     for attempt in range(1, attempts + 1):
@@ -293,6 +295,7 @@ def _drive_task_unlocked(
                 enable_subagents=allow_subagents,
                 effort=effort,
                 ultracode=ultracode,
+                container_agent=container_agent,
             )
             callback = make_event_callback(store, task_id, adapter)
         else:
@@ -303,11 +306,12 @@ def _drive_task_unlocked(
         prompt_stdin = prompt_path.read_text(encoding="utf-8") if provider else None
         if container_agent:
             try:
-                exit_code, container_output = run_codex_container_agent(
+                exit_code, container_output = run_provider_container_agent(
                     store,
                     task_id,
                     str(uuid.uuid4()),
                     command,
+                    provider=provider,
                     agent_image=container_settings["image"],
                     proxy_image=container_settings["proxy_image"],
                     allowed_hosts=container_settings["egress_allow_hosts"],
@@ -322,7 +326,7 @@ def _drive_task_unlocked(
                     "reason": str(exc),
                     "attempt": attempt,
                     "adapter": adapter_label,
-                    "execution_mode": "codex-container",
+                    "execution_mode": f"{provider}-container",
                 })
                 raise
         else:
