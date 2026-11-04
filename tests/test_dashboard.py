@@ -145,7 +145,7 @@ class DashboardTests(unittest.TestCase):
         self.assertIn("X-NARROW-Token", script)
 
     def test_dashboard_diff_endpoint_shows_tracked_and_untracked_text_changes(self):
-        (self.root / "src" / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
+        (Path(self.task["worktree"]) / "src" / "app.py").write_text("VALUE = 2\n", encoding="utf-8")
         new_file = Path(self.task["worktree"]) / "src" / "new.py"
         new_file.write_text("ANSWER = 42\n", encoding="utf-8")
         status, _, body = self.request("GET", f"/api/v1/tasks/{self.task['id']}/diff")
