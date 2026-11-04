@@ -31,6 +31,7 @@ from .providers import (
 )
 from .container_egress import run_provider_container_agent
 from .agent_runtime import validate_agent_image
+from .review_gate import build_review_report, evaluate_repair_continuation
 
 
 def _validate_command(command: Any, label: str) -> list[str]:
@@ -381,6 +382,40 @@ def _drive_task_unlocked(
             store.add_event(task_id, "DRIVE_BUDGET_EXHAUSTED", {"attempts": attempts})
             print(f"\nNEEDS_REVIEW — verification still fails after {attempts} bounded attempts. The task and evidence are preserved.")
             return 2
+        # Verification failure alone can enter a bounded repair cycle.
+        # Scope violations, credential-like paths, unsafe links, or other
+        # safety findings must stop/escalate before another agent execution.
+        try:
+            review_report = build_review_report(store, task_id)
+            repair_gate = evaluate_repair_continuation(review_report)
+        except Exception as exc:
+            # An unavailable or malformed reviewer is not a reason to trust
+            # another autonomous attempt. Preserve the task and fail closed.
+            store.update_status(task_id, "NEEDS_REVIEW")
+            store.add_event(task_id, "VERIFICATION_REVIEW_GATE_FAILED", {
+                "attempt": attempt,
+                "error_type": type(exc).__name__,
+            })
+            print()
+            print("NARROW stopped automatic repair: the deterministic review gate could not complete.")
+            print("The task is preserved for human review; no additional agent attempt was launched.")
+            return 2
+
+        if repair_gate["decision"] != "CONTINUE":
+            store.update_status(task_id, "NEEDS_REVIEW")
+            store.add_event(task_id, "VERIFICATION_REPAIR_ESCALATED", {
+                "attempt": attempt,
+                "decision": repair_gate["decision"],
+                "reason": repair_gate["reason"],
+                "blocker_codes": [item.get("code", "UNKNOWN") for item in review_report.get("blockers", [])[:20]],
+                "risk_codes": [item.get("code", "UNKNOWN") for item in review_report.get("risk_flags", [])[:20]],
+                "snapshot_hash": review_report.get("snapshot_hash"),
+            })
+            print()
+            print("NARROW stopped automatic repair: " + repair_gate["reason"])
+            print("The task is preserved for human review; no additional agent attempt was launched.")
+            return 2
+
         store.add_event(task_id, "REPAIR_REQUESTED", {"attempt": attempt, "next_attempt": attempt + 1})
         print("\nVerification failed. NARROW preserved the failure output and will ask the agent for one scoped repair iteration.")
 

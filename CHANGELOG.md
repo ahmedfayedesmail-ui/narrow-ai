@@ -1,3 +1,11 @@
+## Beta follow-up — verification-gated repair continuation
+
+- Before any automatic repair retry, `narrow drive` now rebuilds the deterministic review packet for the current workspace.
+- Only plain verification failures with no blockers and no elevated risk flags can continue to another bounded attempt.
+- Scope violations, unsafe links, credential-like changed paths, task/checkout invariant failures, and security-sensitive paths stop or escalate to human review.
+- Escalations preserve the task and emit a sanitized `VERIFICATION_REPAIR_ESCALATED` event.
+- A permitted retry does not imply approval or completion; fresh checks, human acceptance, and the independent `narrow finish` gate remain mandatory.
+
 ## Beta follow-up — one-command setup and security posture
 
 ### Added
