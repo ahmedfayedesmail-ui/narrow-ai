@@ -18,6 +18,8 @@ from .core import (
     changed_paths,
     classify_paths,
     git_status,
+    load_config,
+    redact,
     render_task_brief,
     run_git,
     safe_git_environment,
@@ -117,7 +119,7 @@ def build_review_report(store: Store, task_id: str) -> dict[str, Any]:
     gate("workspace_integrity", not unsafe, "No unsafe links or hard-linked files were detected." if not unsafe else "Unsafe workspace entries were detected: " + ", ".join(unsafe[:20]))
     gate("scope", not scope["outside"] and not scope["denied"], "All changed paths match the task allow/deny contract." if not scope["outside"] and not scope["denied"] else "Out-of-scope paths: " + ", ".join(scope["outside"][:20]) + ("; " if scope["outside"] and scope["denied"] else "") + "Denied paths: " + ", ".join(scope["denied"][:20]))
 
-    config = __import__("narrow.core", fromlist=["load_config"]).load_config(store.root)
+    config = load_config(store.root)
     maximum = config.get("max_changed_files", 100)
     if not isinstance(maximum, int) or isinstance(maximum, bool) or maximum < 1:
         raise NarrowError("max_changed_files in .narrow/config.json must be a positive integer.")
@@ -180,7 +182,7 @@ def build_review_report(store: Store, task_id: str) -> dict[str, Any]:
                 except (TypeError, json.JSONDecodeError):
                     recorded_command = None
                 command = spec.get("command") if isinstance(spec, dict) else None
-                configured_command = [__import__("narrow.core", fromlist=["redact"]).redact(part) for part in command] if isinstance(command, list) else None
+                configured_command = [redact(part) for part in command] if isinstance(command, list) else None
                 if recorded_command != configured_command:
                     status, detail = "CONFIG_CHANGED", "The configured command differs from the signed command; rerun this check."
                 elif row["snapshot_hash"] != current_snapshot:
