@@ -211,31 +211,59 @@ def validate_claude_container_settings(
         raise NarrowError("Claude container settings are not valid task-local JSON.") from exc
     if not isinstance(settings_data, dict) or "sandbox" in settings_data:
         raise NarrowError("Claude container settings must delegate containment to the outer Docker boundary.")
+    expected_top_level = {"permissions", "hooks"}
+    if set(settings_data) != expected_top_level:
+        raise NarrowError("Claude container settings contain unsupported or missing top-level fields.")
     permissions = settings_data.get("permissions")
-    if not isinstance(permissions, dict) or permissions.get("blockReadsOutsideWorkingDirectories") is not True:
-        raise NarrowError("Claude container settings must retain the working-directory read restriction.")
+    if permissions != {
+        "defaultMode": "default",
+        "blockReadsOutsideWorkingDirectories": True,
+    }:
+        raise NarrowError("Claude container settings must preserve default permissions and working-directory read restriction.")
     hooks = settings_data.get("hooks")
-    if not isinstance(hooks, dict) or "PreToolUse" not in hooks:
-        raise NarrowError("Claude container settings must include the NARROW direct-file PreToolUse gate.")
-    allowed_events = {
-        "session-start", "pre-tool-use", "post-tool-use", "post-tool-use-failure",
-        "pre-compact", "stop", "session-end", "subagent-start", "subagent-stop",
-        "task-created", "task-completed",
+    expected_events = {
+        "SessionStart": "session-start",
+        "PreToolUse": "pre-tool-use",
+        "PostToolUse": "post-tool-use",
+        "PostToolUseFailure": "post-tool-use-failure",
+        "SubagentStart": "subagent-start",
+        "SubagentStop": "subagent-stop",
+        "TaskCreated": "task-created",
+        "TaskCompleted": "task-completed",
+        "PreCompact": "pre-compact",
+        "Stop": "stop",
+        "SessionEnd": "session-end",
     }
-    for hook_groups in hooks.values():
-        if not isinstance(hook_groups, list):
-            raise NarrowError("Claude container hook settings are malformed.")
-        for group in hook_groups:
-            hook_list = group.get("hooks") if isinstance(group, dict) else None
-            if not isinstance(hook_list, list):
-                raise NarrowError("Claude container hook settings are malformed.")
-            for hook in hook_list:
-                command = hook.get("command") if isinstance(hook, dict) else None
-                if not isinstance(command, str) or not command.startswith("python -m narrow hook claude "):
-                    raise NarrowError("Claude container hooks must invoke the in-image manifest-only hook CLI.")
-                event = command.removeprefix("python -m narrow hook claude ")
-                if event not in allowed_events:
-                    raise NarrowError("Claude container hook command contains an unsupported event.")
+    if not isinstance(hooks, dict) or set(hooks) != set(expected_events):
+        raise NarrowError("Claude container hook profile is missing required NARROW lifecycle and file-policy hooks.")
+    for event_name, event in expected_events.items():
+        groups = hooks.get(event_name)
+        if not isinstance(groups, list) or len(groups) != 1:
+            raise NarrowError(f"Claude container {event_name} hook configuration is malformed.")
+        group = groups[0]
+        if not isinstance(group, dict):
+            raise NarrowError(f"Claude container {event_name} hook group is malformed.")
+        hook_list = group.get("hooks")
+        if not isinstance(hook_list, list) or len(hook_list) != 1:
+            raise NarrowError(f"Claude container {event_name} hook command is missing or ambiguous.")
+        hook = hook_list[0]
+        if not isinstance(hook, dict) or hook.get("type") != "command":
+            raise NarrowError(f"Claude container {event_name} must use one in-image NARROW command hook.")
+        if hook.get("command") != f"python -m narrow hook claude {event}":
+            raise NarrowError(f"Claude container {event_name} hook does not invoke the exact NARROW in-image command.")
+        if event_name == "PreToolUse":
+            if group.get("matcher") != "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit" or hook.get("onFailure") != "block":
+                raise NarrowError("Claude container direct file tools must be gated by a blocking NARROW PreToolUse hook.")
+            if hook.get("timeout") != 5:
+                raise NarrowError("Claude container direct file gate timeout is invalid.")
+        elif event_name == "PostToolUse":
+            if group.get("matcher") != "Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit":
+                raise NarrowError("Claude container PostToolUse hook matcher is invalid.")
+        elif event_name == "PostToolUseFailure":
+            if group.get("matcher") != "Bash|Read|Glob|Grep|Write|Edit|MultiEdit|NotebookEdit|Agent":
+                raise NarrowError("Claude container PostToolUseFailure matcher is invalid.")
+        elif "matcher" in group:
+            raise NarrowError(f"Claude container {event_name} hook must not broaden its matcher.")
     if mcp_data != {"mcpServers": {}}:
         raise NarrowError("Claude container MCP configuration must be exactly empty.")
     return settings_file, mcp_file
