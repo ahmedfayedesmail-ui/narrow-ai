@@ -1,4 +1,4 @@
-name: Publish GitHub Alpha release
+name: Publish GitHub Beta preview release
 
 on:
   workflow_dispatch:
@@ -9,7 +9,7 @@ on:
         type: string
         default: "0.5.1"
       authorization:
-        description: Type PUBLISH NARROW 0.5.1 ALPHA to authorize this release
+        description: Type PUBLISH NARROW 0.6.0 BETA to authorize this release
         required: true
         type: string
 
@@ -22,7 +22,7 @@ concurrency:
 
 jobs:
   publish:
-    if: ${{ github.actor == 'ahmedfayedesmail-ui' && inputs.authorization == format('PUBLISH NARROW {0} ALPHA', inputs.version) }}
+    if: ${{ github.actor == 'ahmedfayedesmail-ui' && inputs.authorization == format('PUBLISH NARROW {0} BETA', inputs.version) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -60,7 +60,7 @@ jobs:
           echo "Validated $TAG at $TARGET"
           gh release create "$TAG" \
             --repo ahmedfayedesmail-ui/narrow-ai \
-            --title "NARROW $TAG Alpha" \
+            --title "NARROW $TAG Beta" \
             --notes-file "$NOTES" \
             --prerelease \
             --target "$TARGET"
