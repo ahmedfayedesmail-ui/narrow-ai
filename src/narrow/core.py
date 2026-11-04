@@ -44,8 +44,20 @@ def redact(value: str) -> str:
     return result
 
 
-def safe_git_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:
-    """Remove inherited Git redirection/config variables from NARROW-managed Git calls."""
+def safe_git_environment(
+    overrides: dict[str, str] | None = None,
+    *,
+    root: Path | None = None,
+) -> dict[str, str]:
+    """Drop executable Git config while preserving the effective line-ending policy.
+
+    A user's global core.autocrlf setting affects Git's view of whether a
+    Windows checkout is clean. NARROW must not import arbitrary global config
+    (hooks, filters, fsmonitor, aliases), but it must compare the working tree
+    using the same line-ending normalization as the user's Git checkout.
+    Only this non-executable scalar is read from the effective repository
+    configuration and reintroduced as an explicit environment config value.
+    """
     env = os.environ.copy()
     for key in tuple(env):
         if key.startswith("GIT_"):
@@ -55,6 +67,30 @@ def safe_git_environment(overrides: dict[str, str] | None = None) -> dict[str, s
         "GIT_CONFIG_GLOBAL": os.devnull,
         "GIT_TERMINAL_PROMPT": "0",
     })
+
+    if root is not None:
+        probe_env = os.environ.copy()
+        for key in tuple(probe_env):
+            if key.startswith("GIT_"):
+                probe_env.pop(key, None)
+        try:
+            config = subprocess.run(
+                ["git", "-C", str(root), "config", "--get", "core.autocrlf"],
+                text=True,
+                capture_output=True,
+                timeout=3,
+                check=False,
+                env=probe_env,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            config = None
+        value = config.stdout.strip().lower() if config is not None and config.returncode == 0 else ""
+        if value in {"true", "false", "input"}:
+            env.update({
+                "GIT_CONFIG_COUNT": "1",
+                "GIT_CONFIG_KEY_0": "core.autocrlf",
+                "GIT_CONFIG_VALUE_0": value,
+            })
     if overrides:
         env.update(overrides)
     return env
@@ -68,7 +104,7 @@ def run_git(root: Path, args: list[str], *, timeout: int = 20, check: bool = Tru
             capture_output=True,
             timeout=timeout,
             check=False,
-            env=safe_git_environment(),
+            env=safe_git_environment(root=root),
         )
     except FileNotFoundError as exc:
         raise NarrowError("Git was not found. Install Git and reopen your terminal.") from exc
@@ -400,6 +436,7 @@ def default_config() -> dict[str, Any]:
         "stop_on_scope_violation": True,
         "checks": {},
         "agents": {},
+        "project_profile": None,
         "max_repair_attempts": 3,
         # Shell network access in native Claude sessions is deny-by-default.
         # Add only package registries or APIs required by this repository.
@@ -436,6 +473,14 @@ def load_config(root: Path) -> dict[str, Any]:
             config[key] = {}
         elif not isinstance(config[key], dict):
             raise NarrowError(f"The '{key}' entry in .narrow/config.json must be a JSON object.")
+    profile = config.get("project_profile")
+    if profile is not None:
+        if not isinstance(profile, dict) or profile.get("name") not in {"web", "python", "data", "general"}:
+            raise NarrowError("project_profile must be a supported NARROW project profile object.")
+        for key, maximum in (("allowed_paths", 20), ("denied_paths", 40)):
+            values = profile.get(key, [])
+            if not isinstance(values, list) or len(values) > maximum or not all(isinstance(item, str) and item and len(item) <= 240 for item in values):
+                raise NarrowError(f"project_profile.{key} must be a bounded array of path patterns.")
     domains = config.get("claude_network_allowed_domains", [])
     if not isinstance(domains, list) or len(domains) > 100 or not all(isinstance(x, str) for x in domains):
         raise NarrowError("claude_network_allowed_domains must be an array of at most 100 domain strings.")
@@ -517,7 +562,7 @@ def changed_paths(worktree: Path) -> list[str]:
             capture_output=True,
             timeout=20,
             check=False,
-            env=safe_git_environment(),
+            env=safe_git_environment(root=worktree),
         )
     except (FileNotFoundError, subprocess.TimeoutExpired) as exc:
         raise NarrowError(f"Could not inspect task worktree status: {exc}") from exc
@@ -692,7 +737,7 @@ def create_task(
     # The initial checkout can execute Git filters and globally configured hooks.
     # Disable system/global Git config for the clone/checkout boundary and skip
     # Git LFS smudge downloads. LFS objects can be provisioned manually later.
-    isolated_git_env = safe_git_environment({"GIT_LFS_SKIP_SMUDGE": "1"})
+    isolated_git_env = safe_git_environment({"GIT_LFS_SKIP_SMUDGE": "1"}, root=root)
     try:
         clone = subprocess.run(
             ["git", "-c", "core.fsmonitor=false", "-c", "core.untrackedCache=false", "clone", "--no-hardlinks", "--no-checkout", str(root), str(worktree)],

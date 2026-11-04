@@ -15,6 +15,7 @@ from . import __version__
 from .core import (
     NarrowError,
     Store,
+    default_config,
     accept_criterion,
     changed_paths,
     classify_paths,
@@ -41,6 +42,7 @@ from .drive import drive_task
 from .hooks import run_hook_cli
 from .providers import provider_status
 from .discovery import discover_project, propose_contract
+from .profiles import build_setup_plan, build_security_posture, profile_scope_defaults
 from .dashboard import run_dashboard
 from .locks import task_execution_lock
 from .sandbox import prepare_sandbox_command
@@ -89,9 +91,11 @@ def cmd_start(args: argparse.Namespace) -> int:
             args.goal,
             ollama_model=args.model if args.ollama else None,
         )
+        saved_config = load_config(root)
+        profile_allow, profile_deny = profile_scope_defaults(root, saved_config.get("project_profile"))
         title = title or proposal["title"]
-        allowed = allowed or proposal["allow"]
-        denied = denied or proposal["deny"]
+        allowed = allowed or profile_allow or proposal["allow"]
+        denied = denied or profile_deny or proposal["deny"]
         acceptance = acceptance or proposal["accept"]
         print("NARROW generated a task proposal. Review every path and criterion:")
         print("Title: " + title)
@@ -198,6 +202,116 @@ def cmd_contract_history(args: argparse.Namespace) -> int:
         else:
             print("  Initial contract")
     print("\nThe approved task contract remains immutable for this task. Create a new task to change its scope.")
+    return 0
+
+
+def cmd_setup(args: argparse.Namespace) -> int:
+    """Prepare a project profile and verification suggestions without running commands."""
+    if args.json and args.apply:
+        raise NarrowError("--json is read-only; use the interactive --apply mode separately.")
+    root = find_repo_root()
+    discovery = discover_project(root)
+    plan = build_setup_plan(root, discovery, args.profile)
+    if args.json:
+        print(json.dumps(plan, ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"NARROW setup — {root}")
+    print(f"Profile: {plan['profile']} — {plan['profile_description']}")
+    print("Suggested allowed paths: " + (", ".join(plan["allowed_paths"]) or "(none detected; define a narrow allowlist manually)"))
+    print("Suggested denied paths: " + (", ".join(plan["denied_paths"]) or "(none detected)"))
+    print("Suggested verification commands (not executed):")
+    if plan["checks"]:
+        for item in plan["checks"]:
+            print(f"  {item['name']}: {shlex.join(item['command'])} ({item['timeout_seconds']}s)")
+    else:
+        print("  (no recognizable test command found)")
+    print("\nSecurity boundary:")
+    print("  Git task copies are not OS sandboxes.")
+    print("  This setup does not launch or isolate an agent.")
+    print("  Verification sandbox stays OFF unless configured separately.")
+    print("  Human review remains required.")
+
+    if not args.apply:
+        print("\nRead-only plan. Nothing was written and no commands were run.")
+        print("Review this plan, then run narrow setup --apply to save the profile and add missing check suggestions.")
+        return 0
+
+    config_path = root / ".narrow" / "config.json"
+    config = load_config(root) if config_path.is_file() else default_config()
+    existing = config.setdefault("checks", {})
+    additions: dict[str, dict[str, Any]] = {}
+    conflicts: list[str] = []
+    for item in plan["checks"]:
+        spec = {"command": item["command"], "timeout_seconds": item["timeout_seconds"]}
+        current = existing.get(item["name"])
+        if current is None:
+            additions[item["name"]] = spec
+        elif not isinstance(current, dict) or current.get("command") != spec["command"]:
+            conflicts.append(item["name"])
+
+    profile_record = {
+        "name": plan["profile"],
+        "allowed_paths": plan["allowed_paths"],
+        "denied_paths": plan["denied_paths"],
+    }
+    profile_changed = config.get("project_profile") != profile_record
+    if not additions and not profile_changed:
+        print("\nNo changes needed. Existing check configuration was preserved.")
+        if conflicts:
+            print("Existing checks with different commands were left unchanged: " + ", ".join(conflicts))
+        return 0
+
+    print("\nChanges proposed:")
+    print("  Add checks: " + (", ".join(additions) if additions else "(none)"))
+    print("  Save project profile: " + plan["profile"] if profile_changed else "  Keep existing project profile")
+    if conflicts:
+        print("  Preserve conflicting existing checks: " + ", ".join(conflicts))
+    print("No suggested command will be executed.")
+    try:
+        answer = input("Apply these setup changes? [y/N] ").strip().lower()
+    except EOFError:
+        answer = ""
+    if answer not in {"y", "yes"}:
+        print("Cancelled. No setup changes were saved.")
+        return 1
+
+    # Only initialize local state after the user confirms the proposed setup.
+    init_project(root)
+    config = load_config(root)
+    existing = config.setdefault("checks", {})
+    for name, spec in additions.items():
+        # Re-check after confirmation so a concurrent/manual edit is never replaced.
+        if name not in existing:
+            existing[name] = spec
+    config["project_profile"] = profile_record
+    write_internal_file(root / ".narrow", "config.json", json.dumps(config, ensure_ascii=False, indent=2) + "\n")
+    print(f"Saved project profile '{plan['profile']}' and added {len(additions)} check suggestion(s) to .narrow/config.json.")
+    print("Review every command before running narrow verify or narrow drive.")
+    return 0
+
+
+def cmd_security(args: argparse.Namespace) -> int:
+    """Show the effective separation between workflow coordination and OS enforcement."""
+    root = find_repo_root()
+    path = root / ".narrow" / "config.json"
+    initialized = path.is_file()
+    config = load_config(root) if initialized else default_config()
+    report = build_security_posture(config, initialized=initialized)
+    if args.json:
+        print(json.dumps(report, ensure_ascii=False, indent=2))
+        return 0
+
+    print("NARROW security posture")
+    print(f"Project profile: {report['project_profile'] or '(not selected)'}")
+    print("\nOrchestration layer")
+    for name, detail in report["orchestration"].items():
+        print(f"  {name.replace('_', ' ').title()}: {detail}")
+    print("\nOS enforcement layer")
+    for name, detail in report["security_enforcement"].items():
+        print(f"  {name.replace('_', ' ').title()}: {detail}")
+    print("\nImportant: orchestration is not a sandbox. Use narrow security --json for automation.")
+    print("Read-only: no credentials are inspected, no network is contacted, and no processes are launched.")
     return 0
 
 
@@ -781,6 +895,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("init", help="Initialize local NARROW metadata and configuration.").set_defaults(func=cmd_init)
 
+    setup = sub.add_parser("setup", help="Detect a safe project profile and prepare reviewed verification suggestions.")
+    setup.add_argument("--profile", choices=("auto", "web", "python", "data", "general"), default="auto", help="Project preset (default: auto-detect).")
+    setup.add_argument("--apply", action="store_true", help="Ask before saving the profile and adding missing check suggestions.")
+    setup.add_argument("--json", action="store_true", help="Print the read-only setup plan as JSON; cannot be combined with --apply.")
+    setup.set_defaults(func=cmd_setup)
+
     discover = sub.add_parser("discover", help="Read project manifests and suggest verification commands.")
     discover.add_argument("--apply", action="store_true", help="Review and add discovered checks to .narrow/config.json.")
     discover.add_argument("--json", action="store_true", help="Emit the discovery report as JSON.")
@@ -842,6 +962,10 @@ def build_parser() -> argparse.ArgumentParser:
     providers.add_argument("--versions", action="store_true", help="Run each detected CLI with --version (no sign-in check).")
     providers.add_argument("--json", action="store_true", help="Emit provider status as JSON.")
     providers.set_defaults(func=cmd_providers)
+
+    security = sub.add_parser("security", help="Explain the separation between NARROW orchestration and OS-level enforcement.")
+    security.add_argument("--json", action="store_true", help="Emit a machine-readable security posture report.")
+    security.set_defaults(func=cmd_security)
 
     doctor = sub.add_parser("doctor", help="Run read-only diagnostics for this repository and local providers.")
     doctor.add_argument("--versions", action="store_true", help="Probe installed provider CLI versions.")

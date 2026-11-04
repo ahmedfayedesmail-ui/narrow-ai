@@ -21,6 +21,7 @@ from narrow.core import (
     init_project,
     make_handoff,
     redact,
+    safe_git_environment,
     snapshot_hash,
     verify_check_run_signature,
 )
@@ -624,6 +625,24 @@ class DriveTests(unittest.TestCase):
         self.assertFalse(success)
         self.assertTrue(any("human confirmation" in item for item in problems))
 
+
+    def test_safe_git_environment_preserves_only_core_autocrlf_from_repo_config(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            subprocess.run(["git", "init", str(root)], check=True, capture_output=True)
+            subprocess.run(
+                ["git", "-C", str(root), "config", "core.autocrlf", "true"],
+                check=True,
+                capture_output=True,
+            )
+            env = safe_git_environment(root=root)
+            self.assertEqual(env.get("GIT_CONFIG_NOSYSTEM"), "1")
+            self.assertEqual(env.get("GIT_CONFIG_GLOBAL"), os.devnull)
+            self.assertEqual(env.get("GIT_CONFIG_COUNT"), "1")
+            self.assertEqual(env.get("GIT_CONFIG_KEY_0"), "core.autocrlf")
+            self.assertEqual(env.get("GIT_CONFIG_VALUE_0"), "true")
+            self.assertNotIn("GIT_DIR", env)
+            self.assertNotIn("GIT_WORK_TREE", env)
 
     def test_check_evidence_signature_detects_database_row_tampering(self):
         task = self.task

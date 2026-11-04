@@ -1,3 +1,16 @@
+## Beta follow-up — one-command setup and security posture
+
+### Added
+- `narrow setup` detects a web, Python, data, or general project profile and prepares a read-only onboarding plan.
+- Explicit `narrow setup --apply` saves the selected profile and adds only missing verification suggestions after interactive confirmation. Existing check commands are never overwritten and suggested checks are never executed.
+- Saved profile scope defaults are validated against existing non-symlink top-level directories before they are used by `narrow start --auto-contract`.
+- `narrow security` / `narrow security --json` exposes the distinction between task orchestration, agent runtime enforcement, and verification-container isolation.
+
+### Safety boundaries
+- Profiles do not enable Docker or claim to sandbox the agent.
+- Verification sandbox remains off by default.
+- Human acceptance remains required; passing configured checks cannot mark work complete by itself.
+
 ## 0.6.0b1 — 2026-11-03 (Beta preview; source-only, unpublished)
 
 ### Added
