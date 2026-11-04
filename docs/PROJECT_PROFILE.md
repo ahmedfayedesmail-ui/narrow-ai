@@ -4,7 +4,7 @@
 
 **Category:** Local-first AI coding-agent task supervisor / execution coordination layer.
 
-**Project status:** Public Beta preview — v0.6.0b1 (unreleased source on `main`). Not a stable release and not a universal OS sandbox. The published v0.5.1 PyPI package remains Alpha and unchanged.
+**Project status:** Public Beta preview — v0.6.0b1 (unreleased source on `main`). Not a stable release and not a universal OS sandbox. The older published v0.5.1 PyPI package predates the current Beta source and is unchanged.
 
 ## What it is
 
@@ -60,7 +60,7 @@ For untrusted repositories, generated code, or unattended execution, use a separ
 - CodeQL passed on the same commit in [run #41778742977](https://github.com/ahmedfayedesmail-ui/narrow-ai/actions/runs/41778742977).
 - No authenticated live Codex account session was performed. The project owner has explicitly decided that a live session is not required for the Beta label. No live provider execution is claimed.
 - The CI results establish the tested deterministic workflows and Docker egress topology; they are not an independent security audit, universal sandbox assessment, or proof of semantic correctness.
-- The published `v0.5.1` PyPI package remains Alpha and unchanged. Android/Termux is unsupported and unvalidated.
+- The older published `v0.5.1` PyPI package predates the current Beta source. Android/Termux is unsupported and unvalidated.
 
 ## Installation and demo
 
