@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: Rename historical pre-Beta releases
+      - name: Normalize earlier release archive names
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -27,8 +27,8 @@ jobs:
             RELEASE_ID="$(jq -r '.id' <<< "$RELEASE_JSON")"
             CURRENT_NAME="$(jq -r '.name // ""' <<< "$RELEASE_JSON")"
             CURRENT_BODY="$(jq -r '.body // ""' <<< "$RELEASE_JSON")"
-            NEW_NAME="NARROW $TAG — Legacy pre-Beta"
-            NEW_BODY="$(printf '%s' "$CURRENT_BODY" | perl -0pe 's/\x61\x6c\x70\x68\x61/legacy pre-Beta/ig')"
+            NEW_NAME="NARROW $TAG — Archived release"
+            NEW_BODY="$(printf '%s' "$CURRENT_BODY" | perl -0pe 's/\x61\x6c\x70\x68\x61/archived release/ig')"
             if [[ "$CURRENT_NAME" != "$NEW_NAME" || "$CURRENT_BODY" != "$NEW_BODY" ]]; then
               gh api --method PATCH "repos/$REPO/releases/$RELEASE_ID" \
                 -f name="$NEW_NAME" \
