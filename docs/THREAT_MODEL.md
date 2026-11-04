@@ -1,4 +1,4 @@
-# Threat Model — NARROW v0.5.0 Alpha
+# Threat Model — NARROW v0.5.0 legacy baseline (pre-Beta)
 
 Last reviewed: 2026-11-03
 
@@ -64,7 +64,7 @@ The human-review path is deliberately explicit: `narrow inspect`, examine the ac
 
 The acceptance command records the user's assertion; it cannot prove the person actually inspected the change. `VERIFIED_COMPLETE` means the configured checks passed for the current snapshot, acceptance evidence is current, the task remains in scope, the task base/branch match, and the original checkout is clean and unchanged. It does **not** certify semantic correctness, absence of vulnerabilities, completeness of tests, or production readiness.
 
-## Explicit non-goals for v0.5.0 Alpha
+## Explicit non-goals for the v0.5.0 legacy baseline
 
 - Defending a machine against a malicious local user, compromised OS, or compromised NARROW runtime.
 - A universal OS sandbox around all provider tools, hooks, plugins, helper processes, agents, and checks.
@@ -87,4 +87,4 @@ Before describing NARROW as suitable for unattended execution or a stable securi
 5. Independent security review and a documented supported-platform/provider matrix.
 6. Reproducible package builds and a versioned release process, with artifact integrity/signing and publication permissions configured.
 
-Until these gates are met, use NARROW as an alpha task supervisor in disposable or low-risk repositories with manual review—not as an autonomous security boundary.
+Use the current Beta preview as a task supervisor with manual review—not as an autonomous security boundary. For untrusted repositories or code, use a separately configured disposable OS-level sandbox.
