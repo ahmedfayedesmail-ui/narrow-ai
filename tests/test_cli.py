@@ -22,6 +22,11 @@ class CliTests(unittest.TestCase):
         ])
         self.assertTrue(codex_container.container_agent)
         self.assertEqual(codex_container.provider, "codex")
+        claude_container = parser.parse_args([
+            "drive", "--provider", "claude", "--container-agent", "--task", "task_123"
+        ])
+        self.assertTrue(claude_container.container_agent)
+        self.assertEqual(claude_container.provider, "claude")
         dashboard = parser.parse_args(["dashboard", "--port", "8766"])
         self.assertEqual(dashboard.port, 8766)
         self.assertFalse(dashboard.open)
