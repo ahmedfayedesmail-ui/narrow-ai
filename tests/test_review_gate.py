@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from narrow.core import Store, accept_criterion, create_task, init_project, save_check_run, snapshot_hash
-from narrow.review_gate import build_review_report
+from narrow.review_gate import build_review_report, evaluate_repair_continuation
 
 
 def git(root: Path, *args: str) -> str:
@@ -107,6 +107,54 @@ class ReviewGateTests(unittest.TestCase):
         self.assertEqual(report["decision"], "BLOCKED")
         self.assertNotIn("DO_NOT_READ_THIS_TEST_SECRET", json.dumps(report))
         self.assertTrue(any(item["code"] == "SENSITIVE_FILE_PATH" for item in report["blockers"]))
+
+    def test_repair_continuation_allows_only_plain_verification_failure(self):
+        report = {
+            "schema": "narrow.review-report.v1",
+            "decision": "NEEDS_VERIFICATION",
+            "automatic_approval": False,
+            "state_mutated": False,
+            "commands_executed": False,
+            "blockers": [],
+            "risk_flags": [],
+        }
+        self.assertEqual(evaluate_repair_continuation(report)["decision"], "CONTINUE")
+
+    def test_repair_continuation_stops_on_safety_blockers(self):
+        report = {
+            "schema": "narrow.review-report.v1",
+            "decision": "BLOCKED",
+            "automatic_approval": False,
+            "state_mutated": False,
+            "commands_executed": False,
+            "blockers": [{"code": "SCOPE"}],
+            "risk_flags": [],
+        }
+        self.assertEqual(evaluate_repair_continuation(report)["decision"], "STOP")
+
+    def test_repair_continuation_escalates_security_sensitive_paths(self):
+        report = {
+            "schema": "narrow.review-report.v1",
+            "decision": "NEEDS_VERIFICATION",
+            "automatic_approval": False,
+            "state_mutated": False,
+            "commands_executed": False,
+            "blockers": [],
+            "risk_flags": [{"code": "SECURITY_SENSITIVE_AREA"}],
+        }
+        self.assertEqual(evaluate_repair_continuation(report)["decision"], "ESCALATE")
+
+    def test_repair_continuation_fails_closed_on_malformed_review_packet(self):
+        report = {
+            "schema": "narrow.review-report.v1",
+            "decision": "NEEDS_VERIFICATION",
+            "automatic_approval": True,
+            "state_mutated": False,
+            "commands_executed": False,
+            "blockers": [],
+            "risk_flags": [],
+        }
+        self.assertEqual(evaluate_repair_continuation(report)["decision"], "STOP")
 
     def test_security_sensitive_paths_are_flagged_for_human_scrutiny(self):
         workflows = self.workspace / ".github" / "workflows"
