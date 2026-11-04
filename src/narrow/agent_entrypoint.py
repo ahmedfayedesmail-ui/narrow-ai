@@ -45,7 +45,7 @@ def read_mounted_credential(path: Path) -> str:
         ):
             raise NarrowError("Mounted provider credential is not a bounded regular file.")
         if os.name != "nt" and stat.S_IMODE(metadata.st_mode) != 0o400:
-            raise NarrowError("Mounted provider credential must be owner-read-only (mode 0400).")
+            raise NarrowError("Mounted provider credential must be owner-only and read-only (mode 0400).")
         descriptor = os.open(source, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
         try:
             opened = os.fstat(descriptor)

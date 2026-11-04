@@ -61,6 +61,9 @@ class ContainerHookTests(unittest.TestCase):
         self.workspace = Path(self.temp.name) / "workspace"
         (self.workspace / "src").mkdir(parents=True)
         (self.workspace / "src" / "app.py").write_text("VALUE = 1\n", encoding="utf-8")
+        # macOS temp roots may traverse a /var -> /private symlink. Use the
+        # same canonical workspace path that the hook itself validates.
+        self.workspace = self.workspace.resolve(strict=True)
         (self.workspace / "src" / "auth").mkdir()
         self.home = (
             self.store.state_dir / "runtime" / "agent" / self.task["id"]

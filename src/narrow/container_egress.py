@@ -285,7 +285,16 @@ def _verify_sidecar(
         or tmpfs_mounts[0].get("Destination") != "/tmp"
         or other_mounts
     ):
-        raise NarrowError("Egress proxy sidecar must receive only its read-only token bind and bounded /tmp tmpfs.")
+        # Keep the failure actionable without exposing any host mount source
+        # paths or credential locations in CI logs.
+        observed = [
+            f"{item.get('Type')}:{item.get('Destination')}:{'rw' if item.get('RW') is True else 'ro'}"
+            for item in mounts if isinstance(item, dict)
+        ]
+        raise NarrowError(
+            "Egress proxy sidecar must receive only its read-only token bind and bounded /tmp tmpfs. "
+            f"Observed mounts (type:destination:mode): {observed!r}"
+        )
     network_settings = inspected.get("NetworkSettings")
     networks = network_settings.get("Networks") if isinstance(network_settings, dict) else None
     if not isinstance(networks, dict) or set(networks) != {agent_network.name, uplink_network.name}:

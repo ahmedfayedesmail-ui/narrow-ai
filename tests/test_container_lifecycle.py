@@ -139,6 +139,14 @@ class AgentContainerLifecycleTests(unittest.TestCase):
                 return run_result(network_id)
             if args[:2] == ["container", "ls"]:
                 return run_result(agent_ids)
+            if args[:2] == ["container", "inspect"]:
+                payload = [{
+                    "Id": "c" * 64,
+                    "Name": "/narrow-agent-test",
+                    "Config": {"Labels": agent_container_labels(TASK, EXECUTION)},
+                    "State": {"Status": "running"},
+                }]
+                return run_result(json.dumps(payload))
             if args[:2] == ["network", "ls"]:
                 return run_result(network_ids)
             if args[:2] == ["network", "inspect"]:
