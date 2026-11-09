@@ -34,7 +34,7 @@ Issues = "https://github.com/ahmedfayedesmail-ui/narrow-ai/issues"
 Changelog = "https://github.com/ahmedfayedesmail-ui/narrow-ai/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
-dev = ["pytest>=8"]
+dev = ["pytest>=9.2.0"]
 
 [project.scripts]
 narrow = "narrow.cli:main"
